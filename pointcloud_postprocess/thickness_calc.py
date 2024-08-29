@@ -1,5 +1,7 @@
 import open3d as o3d
 import numpy as np
+import tkinter as tk
+from tkinter import filedialog
 from scipy.spatial import cKDTree, Delaunay
 
 def calculate_lost_volume(mesh_before, mesh_after):
@@ -183,9 +185,20 @@ def visualize_curvature(mesh, curvature):
     o3d.visualization.draw_geometries([mesh], window_name="Curvature Visualization", width=800, height=600)
 
 def main():
+    
+    # Initialize tkinter
+    root = tk.Tk()
+    root.withdraw()
+    
+    # Prompt user to select the mesh files
+    mesh_before_path = filedialog.askopenfilename(title="Select the mesh file before grinding",
+                                                 filetypes=[("PLY files", "*.ply")])
+    mesh_after_path = filedialog.askopenfilename(title="Select the mesh file after grinding",
+                                                 filetypes=[("PLY files", "*.ply")])
+    
     #Load mesh file: Before grinding and after grinding
-    mesh_before = o3d.io.read_triangle_mesh("/workspaces/BrightSkyRepoLinux/mesh_sample/LE_mesh.ply")
-    mesh_after = o3d.io.read_triangle_mesh("/workspaces/BrightSkyRepoLinux/mesh_sample/LE_mesh_grinded.ply")
+    mesh_before = o3d.io.read_triangle_mesh(mesh_before_path)
+    mesh_after = o3d.io.read_triangle_mesh(mesh_after_path)
 
     # Filter Mesh
     unchanged_mesh, changed_mesh = filter_unchangedpointson_mesh(mesh_before, mesh_after, threshold=0.1)
