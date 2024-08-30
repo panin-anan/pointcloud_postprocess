@@ -43,6 +43,7 @@ class MeshApp:
         tk.Button(self.root, text="Load Mesh 2", command=self.load_mesh2).pack(pady=5)
         tk.Button(self.root, text="Visualize Mesh 1", command=self.show_mesh1).pack(pady=5)
         tk.Button(self.root, text="Visualize Mesh 2", command=self.show_mesh2).pack(pady=5)
+        tk.Button(self.root, text="Overlay Mesh", command=self.show_overlay).pack(pady=5)
         tk.Button(self.root, text="Probe Points Mesh 1", command=self.probe_points_mesh1).pack(pady=5)
         tk.Button(self.root, text="Probe Points Mesh 2", command=self.probe_points_mesh2).pack(pady=5)
         tk.Button(self.root, text="Compute All", command=self.compute_all).pack(pady=5)
@@ -92,6 +93,26 @@ class MeshApp:
         else:
             messagebox.showwarning("Warning", "Changed mesh not available")
 
+
+    def show_overlay(self):
+        if self.mesh1 and self.mesh2:
+            overlay_meshes = [self.mesh1, self.mesh2]
+            vis_overlay = o3d.visualization.Visualizer()
+            vis_overlay.create_window(window_name="Overlay Meshes", width=800, height=600, left=50, top=50)
+            for mesh in overlay_meshes:
+                vis_overlay.add_geometry(mesh)
+
+            while True:
+                vis_overlay.poll_events()
+                vis_overlay.update_renderer()
+        
+                # Optionally, add a condition to break the loop, e.g., a key press or window close event
+                if not vis_overlay.poll_events():
+                    break
+            vis_overlay.destroy_window()
+        else:
+            messagebox.showwarning("Warning", "Mesh not available")
+
     def create_visualizer(self, geometry, window_name, width, height, left, top):
         vis = o3d.visualization.Visualizer()
         vis.create_window(window_name=window_name, width=width, height=height, left=left, top=top)
@@ -105,6 +126,8 @@ class MeshApp:
             if not vis.poll_events():
                 break
         vis.destroy_window()
+
+        return vis
 
     def probe_points_mesh1(self):
         if self.mesh1:
@@ -120,7 +143,7 @@ class MeshApp:
 
     def probe_points_mesh2(self):
         if self.mesh2:
-            mesh_2_pcl = self.mesh1.sample_points_uniformly(number_of_points=100000)
+            mesh_2_pcl = self.mesh2.sample_points_uniformly(number_of_points=100000)
             picked_ids = self.pick_points(mesh_2_pcl)
             if picked_ids:
                 points = np.asarray(mesh_2_pcl.points)
