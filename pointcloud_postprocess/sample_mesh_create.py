@@ -138,19 +138,19 @@ def create_LE_mesh_before(length, width, height, curvature, divisions_length=4, 
 # Parameters in mm
 length = 50.0
 width = 10.0
-height = 9.8           ## for LE edge mesh
+height = 10.0           ## for LE edge mesh
 thickness = 4.0 
 sink_depth = 3.0
 sink_size = 20.0
 
 curvature = 2
 
-divisions_length = 10
-divisions_width = 5
+divisions_length = 200
+divisions_width = 50
 
 #mesh_before = create_flat_plate_mesh_before(length, width, thickness, divisions_length, divisions_width, filename="flat_plate_fine_mesh.ply")
 #mesh_after = create_flat_plate_mesh_after(length, width, thickness, sink_depth, sink_size, divisions_length, divisions_width, filename="grinded_plate_fine_mesh.ply")
-mesh_LE = create_LE_mesh_before(length, width, height, curvature, divisions_length, divisions_width, filename="LE_mesh_grinded.ply")
+mesh_LE = create_LE_mesh_before(length, width, height, curvature, divisions_length, divisions_width, filename="LE_mesh.ply")
 
 o3d.visualization.draw_geometries([mesh_LE], window_name="Fine Mesh", width=800, height=600)
 
