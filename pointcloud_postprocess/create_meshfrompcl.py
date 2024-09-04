@@ -56,17 +56,48 @@ mesh_before_path = filedialog.askopenfilename(title="Select the mesh file before
                                              filetypes=[("PLY files", "*.ply")])
 
 #Load mesh file: Before grinding and after grinding
-mesh_before = o3d.io.read_triangle_mesh(mesh_before_path)
+mesh_before_pcl = o3d.io.read_point_cloud(mesh_before_path)
 
-mesh_before_pcl = mesh_before.sample_points_uniformly(number_of_points=10000)
+'''
+# Downsample the point cloud
+voxel_size = 0.01 
+mesh_before_pcl = mesh_before_pcl.voxel_down_sample(voxel_size)
+'''
+
+
+#mesh_before_pcl = mesh_before.sample_points_uniformly(number_of_points=100000)
 mesh_before_pcl.estimate_normals()
-mesh_before_pcl.orient_normals_consistent_tangent_plane(100)
+#mesh_before_pcl.orient_normals_consistent_tangent_plane(100)
+
+print("Estimated")
 
 mesh_before_trimesh_poisson = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(mesh_before_pcl, depth=8, width=0, scale=1.1, linear_fit=False)[0]
 
+print("Mesh Created")
+
+
+#Poisson
 bbox = mesh_before_pcl.get_axis_aligned_bounding_box()
 mesh_before_trimesh_poisson_cropped = mesh_before_trimesh_poisson.crop(bbox)
-
+mesh_before_trimesh_poisson_cropped.scale(0.1, center=mesh_before_trimesh_poisson_cropped.get_center())  # Example: scaling down the mesh
 o3d.visualization.draw_geometries([mesh_before_pcl], window_name="Fine Mesh", width=800, height=600)
 o3d.visualization.draw_geometries([mesh_before_trimesh_poisson], window_name="Fine Mesh", width=800, height=600)
 o3d.visualization.draw_geometries([mesh_before_trimesh_poisson_cropped], window_name="Fine Mesh", width=800, height=600)
+
+'''
+# Alpha Shape Reconstruction
+alpha = 0.01
+mesh_before_trimesh_alpha = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(mesh_before_pcl, alpha)
+
+# Bounding box cropping and scaling
+bbox = mesh_before_pcl.get_axis_aligned_bounding_box()
+mesh_before_trimesh_alpha_cropped = mesh_before_trimesh_alpha.crop(bbox)
+mesh_before_trimesh_alpha_cropped.scale(0.1, center=mesh_before_trimesh_alpha_cropped.get_center())  # Example: scaling down the mesh
+
+# Visualization
+mesh_before_trimesh_alpha.scale(0.1, center=mesh_before_trimesh_alpha.get_center())
+o3d.visualization.draw_geometries([mesh_before_pcl], window_name="Point Cloud", width=800, height=600)
+o3d.visualization.draw_geometries([mesh_before_trimesh_alpha], window_name="Alpha Shape Mesh", width=800, height=600)
+o3d.visualization.draw_geometries([mesh_before_trimesh_alpha_cropped], window_name="Cropped Alpha Shape Mesh", width=800, height=600)
+'''
+
