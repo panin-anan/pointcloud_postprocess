@@ -165,7 +165,7 @@ mesh_1 = o3d.io.read_triangle_mesh(path)
 mesh_1_pcl = mesh_1.sample_points_uniformly(number_of_points=100000)
 
 
-LE_radius = 1.5    #Default value, comment out LE_radius_from_pcl method to use default value
+LE_radius = 1.2    #Default value, comment out LE_radius_from_pcl method to use default value
 #This method is meant for obtaining the standard LE radius of a part design.     
 #LE_radius = LE_radius_from_pcl(mesh_1_pcl)     
 
