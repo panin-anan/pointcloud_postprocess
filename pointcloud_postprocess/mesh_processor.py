@@ -11,7 +11,10 @@ class MeshProcessor:
         self.mesh2_pcl = None
         self.worn_sections = []
         self.desired_sections = []
+        self.lost_volumes = []
         self.y_bounds = None
+        self.model = None
+        self.scaler = None
 
     def load_mesh(self, mesh_number):
         path = filedialog.askopenfilename(title=f"Select the mesh file for Mesh {mesh_number}",

@@ -4,16 +4,80 @@ import numpy as np
 def visualize_mesh(mesh):
     o3d.visualization.draw_geometries(mesh, mesh_show_back_face=True)
 
-def visualize_meshes_overlay(worn_meshes, desired_meshes):
+def visualize_meshes_overlay(worn_meshes=None, desired_meshes=None, directional_curve=None, planes=None, line_width=15.0):
     geometries = []
-    
-    for worn_mesh, desired_mesh in zip(worn_meshes, desired_meshes):
-        # Add both worn and desired meshes to the list of geometries
-        geometries.append(worn_mesh)
-        geometries.append(desired_mesh)
 
-    # Visualize the overlay of both sets of meshes
-    o3d.visualization.draw_geometries(geometries, mesh_show_back_face=True)
+    # Convert single mesh input to a list for consistency
+    if not isinstance(worn_meshes, list):
+        worn_meshes = [worn_meshes]
+    
+    geometries += worn_meshes
+    
+    # If desired_meshes is provided, add them to geometries
+    if desired_meshes is not None:
+        if not isinstance(desired_meshes, list):
+            desired_meshes = [desired_meshes]
+        geometries += desired_meshes
+
+    # Add directional curve if provided
+    if directional_curve is not None:
+        # Create a line set for the directional curve
+        curve_lines = []
+        num_points = len(directional_curve)
+        for i in range(num_points - 1):
+            curve_lines.append([i, i + 1])
+        
+        line_set = o3d.geometry.LineSet()
+        line_set.points = o3d.utility.Vector3dVector(directional_curve)
+        line_set.lines = o3d.utility.Vector2iVector(curve_lines)
+        line_set.paint_uniform_color([0, 0, 0])  # Green color for the curve
+        
+        geometries.append(line_set)
+
+    if planes is not None:
+        for plane in planes:
+            point_on_plane, normal = plane
+            
+            # Create a small plane using create_plane function
+            plane_mesh = o3d.geometry.TriangleMesh.create_box(width=100, height=100, depth=0.1)
+            
+            # Translate plane to point_on_plane
+            plane_mesh.translate(point_on_plane)
+            
+            # Align the plane's normal with the provided normal
+            # Open3D's default normal for create_plane is along the +Z axis, so we need a rotation
+            default_normal = np.array([0, 0, 1])  # Z axis
+            rotation_axis = np.cross(default_normal, normal)  # Rotation axis to align with the new normal
+            rotation_angle = np.arccos(np.dot(default_normal, normal) / (np.linalg.norm(default_normal) * np.linalg.norm(normal)))  # Angle between normals
+            
+            if np.linalg.norm(rotation_axis) > 1e-6:  # If there's a significant rotation needed
+                rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)  # Normalize the axis
+                rotation_matrix = o3d.geometry.get_rotation_matrix_from_axis_angle(rotation_axis * rotation_angle)
+                plane_mesh.rotate(rotation_matrix, center=point_on_plane)
+            
+            plane_mesh.paint_uniform_color([1, 0, 0])  # Red color for the plane
+            
+            geometries.append(plane_mesh)
+
+    # Create a custom visualization window to adjust line thickness
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+
+    # Add all geometries to the visualizer
+    for geometry in geometries:
+        vis.add_geometry(geometry)
+
+    # Ensure the visualizer has been properly initialized before getting render options
+    vis.poll_events()
+    vis.update_renderer()
+
+    # Set custom rendering options for line width
+    render_option = vis.get_render_option()
+    render_option.line_width = line_width  # Set the line thickness
+
+    # Visualize the meshes, directional curve, and planes
+    vis.run()
+    vis.destroy_window()
 
 def visualize_sub_section(sub_section):
     colors = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # RGB colors for each sub-curve
@@ -64,3 +128,31 @@ def visualize_lost_material(worn_meshes, desired_meshes):
     for i in range(len(worn_meshes)):
         lost_visualization = project_worn_to_desired(worn_meshes[i], desired_meshes[i])
         o3d.visualization.draw_geometries([worn_meshes[i], desired_meshes[i], lost_visualization])
+
+def visualize_section_pcl(sections):
+    geometries = []
+
+    # Create point cloud geometries for each section and assign different colors for visualization
+    colors = [
+        [1, 0, 0],  # Red
+        [0, 1, 0],  # Green
+        [0, 0, 1],  # Blue
+        [1, 1, 0],  # Yellow
+        [1, 0, 1],  # Magenta
+        [0, 1, 1],  # Cyan
+    ]
+
+    for i, section in enumerate(sections):
+        if len(section) > 0:
+            section_pcd = o3d.geometry.PointCloud()
+            section_pcd.points = o3d.utility.Vector3dVector(section)
+
+            # Assign a unique color to each section (cycling through the colors list)
+            color = colors[i % len(colors)]
+            section_pcd.paint_uniform_color(color)
+
+            geometries.append(section_pcd)
+
+    # Visualize the sections
+    o3d.visualization.draw_geometries(geometries, window_name="Sectioned Point Clouds")
+
