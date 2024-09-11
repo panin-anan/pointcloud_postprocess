@@ -206,7 +206,7 @@ def cut_point_cloud_with_planes(pcd, planes):
         distances = np.dot(points, normal) + d
         
         # Keep points that are near the plane (within a small threshold)
-        threshold = 0.4
+        threshold = 1.0
         mask = np.abs(distances) < threshold
         section_points = points[mask]
         
