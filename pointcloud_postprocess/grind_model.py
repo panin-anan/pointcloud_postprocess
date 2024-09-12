@@ -123,9 +123,9 @@ def main():
         mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=25000)
         mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=25000)
 
-        # Segment meshes
-        mstore.worn_sections, mstore.y_bounds = mstore.segment_leading_edge_by_y_distance(mstore.mesh1_pcl, num_segments=3, mid_ratio=0.7)
-        mstore.desired_sections, _ = mstore.segment_leading_edge_by_y_distance(mstore.mesh2_pcl, num_segments=3, use_bounds=mstore.y_bounds)
+        # Section meshes
+        mstore.worn_sections, mstore.y_bounds = mstore.section_leading_edge(mstore.mesh1_pcl, num_segments=3, mid_ratio=0.7)
+        mstore.desired_sections, _ = mstore.section_leading_edge(mstore.mesh2_pcl, num_segments=3, use_bounds=mstore.y_bounds)
 
         # Convert segments to meshes if necessary
         mstore.worn_sections = [mstore.create_mesh_from_point_cloud(section) for section in mstore.worn_sections]

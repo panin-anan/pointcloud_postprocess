@@ -35,7 +35,7 @@ class MeshProcessor:
         return None
 
     #TO DO: develop this more as it is now only 3 segments and cannot handle complex shape
-    def segment_leading_edge_by_y_distance(self, input_data, num_segments=3, mid_ratio=0.4, use_bounds=None):
+    def section_leading_edge(self, input_data, num_segments=3, mid_ratio=0.4, use_bounds=None):
         # Check if the input is a triangle mesh or point cloud
         if isinstance(input_data, o3d.geometry.TriangleMesh):
             points = np.asarray(input_data.vertices)

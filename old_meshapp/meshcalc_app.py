@@ -149,17 +149,10 @@ class MeshApp:
             messagebox.showwarning("Warning", "Mesh not available")
 
     def create_visualizer(self, geometry, window_name, width, height, left, top):
-        vis = o3d.visualization.Visualizer()
+        vis = o3d.visualization.VisualizerWithEditing(-1, False, "")
         vis.create_window(window_name=window_name, width=width, height=height, left=left, top=top)
         vis.add_geometry(geometry)
-        
-        while True:
-            vis.poll_events()
-            vis.update_renderer()
-        
-        # Optionally, add a condition to break the loop, e.g., a key press or window close event
-            if not vis.poll_events():
-                break
+        vis.run()
         vis.destroy_window()
 
 

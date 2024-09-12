@@ -7,10 +7,6 @@ from scipy.interpolate import splprep, splev
 from mesh_processor import MeshProcessor
 from visualization import visualize_meshes_overlay, visualize_section_pcl
 
-
-from mesh_processor import MeshProcessor
-from visualization import visualize_meshes_overlay, visualize_section_pcl
-
 # Preprocess Point Cloud 
 
 def LE_radius_from_pcl(point_cloud):
