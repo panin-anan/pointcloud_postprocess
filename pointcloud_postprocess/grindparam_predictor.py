@@ -51,6 +51,7 @@ def evaluate_model(model, X_test, y_test):
     print(f"Mean Squared Error: {mse}")
     print(f"R^2 Score: {r2}")
 
+    '''
     # Plot actual vs predicted for each output
     plt.figure(figsize=(12, 6))
     for i, col in enumerate(y_test.columns):
@@ -62,3 +63,4 @@ def evaluate_model(model, X_test, y_test):
     
     plt.tight_layout()
     plt.show()
+    '''

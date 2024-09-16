@@ -216,51 +216,38 @@ class MeshProcessor:
         points = np.asarray(input_segment.vertices if isinstance(input_segment, o3d.geometry.TriangleMesh) else input_segment.points)
     
         # Sort by the specified axis
-        leading_edge_points = self.detect_leading_edge_by_curvature(input_segment, curvature_threshold=(0.005, 0.04), k_neighbors=30, vicinity_radius=7, min_distance=15)
-        # Assuming leading_edge_points contains two points (start and end of the leading edge)
-        leading_edge_start = leading_edge_points[0]
-        leading_edge_end = leading_edge_points[-1]
-
-        # Calculate the leading edge vector
-        leading_edge_vector = leading_edge_end - leading_edge_start
-        leading_edge_vector /= np.linalg.norm(leading_edge_vector)  # Normalize the vector
-
-        # Compute a plane normal perpendicular to the leading edge vector
-        # You can pick any axis perpendicular to the leading edge for now. Let's assume axis-aligned.
-        plane_normal = np.cross(leading_edge_vector, [1, 0, 0])  # Cross with the X-axis to get the normal to the leading edge
-        plane_normal /= np.linalg.norm(plane_normal)  # Normalize the plane normal
-
-        # Project points onto the plane perpendicular to the leading edge
-        projections = np.dot(points - leading_edge_start, plane_normal)
-
-        # Sort the points based on their distance to the leading edge (projected on the plane)
-        sorted_indices = np.argsort(projections)
+        sorted_indices = np.argsort(points[:, axis])  # Sort by the specified axis (0=X, 1=Y, 2=Z)
         sorted_points = points[sorted_indices]
 
-        # Compute the bounds for segmentation based on the projections
-        min_val = projections.min()
-        max_val = projections.max()
-        total_range = max_val - min_val
+        if use_bounds is None:
+            # Compute the bounds for segmentation based on the specified axis and mid_ratio
+            min_val = sorted_points[0, axis]
+            max_val = sorted_points[-1, axis]
+            total_range = max_val - min_val
 
-        # Allocate a fixed width for the center section (around the leading edge vector)
-        center_width = total_range * mid_ratio
-        side_width = (total_range - center_width) / 2  # Left and right sections get equal width
+            # Allocate a larger range for the middle section
+            middle_range = total_range * mid_ratio
+            side_range = (total_range - middle_range) / 2
 
-        # Define boundaries for left, center, and right sections
-        bounds = [
-            min_val,                        # Start of the left section
-            min_val + side_width,           # End of the left section and start of the center
-            min_val + side_width + center_width,  # End of the center section and start of the right
-            max_val                         # End of the right section
-        ]
+            # Define boundaries for each segment
+            bounds = [
+                min_val,                        # Start of the first segment
+                min_val + side_range,          # End of the first segment and start of the middle segment
+                min_val + side_range + middle_range,  # End of the middle segment and start of the third segment
+                max_val                         # End of the third segment
+            ]
+        else:
+            # Use predefined boundaries
+            bounds = use_bounds
 
         sub_sections = []
 
-        # Divide the points into left, center, and right sections based on their projection onto the plane
-        for i in range(3):  # 3 sections: left, center, right
+        # Divide the points into sections based on the adjusted axis boundaries
+        for i in range(num_sections):
             lower_bound = bounds[i]
             upper_bound = bounds[i + 1]
-            mask = (projections >= lower_bound) & (projections < upper_bound)
+
+            mask = (sorted_points[:, axis] >= lower_bound) & (sorted_points[:, axis] < upper_bound)
             segment_indices = sorted_indices[mask]
 
             if isinstance(input_segment, o3d.geometry.TriangleMesh):

@@ -268,13 +268,12 @@ def create_surface_mesh_from_sections(sections):
 # Main
 # Load mesh to mesh processor           comment one out depending on data type
 mstore = MeshProcessor()
-#mstore.mesh1 = mstore.load_mesh(1)
-mstore.mesh1_pcl = mstore.load_mesh(1)
 
+mstore.load_mesh(1)
 
-print("Mesh Loaded")
-# Sample points
-#mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=40000)
+if mstore.mesh1_pcl == None:
+    mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=40000)
+
 
 #For Cropping Point Cloud
 '''
@@ -298,7 +297,7 @@ o3d.io.write_point_cloud("cropped_point_cloud.ply", cropped_pcd)
 '''
 
 
-curvature_array = estimate_curvature(mstore.mesh1_pcl)
+#curvature_array = estimate_curvature(mstore.mesh1_pcl)
 leading_edge_points = detect_leading_edge_by_curvature(mstore.mesh1_pcl, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=10, min_distance=20)
 #tck, u = fit_spline_to_leading_edge(leading_edge_points)
 
@@ -306,7 +305,7 @@ leading_edge_points = detect_leading_edge_by_curvature(mstore.mesh1_pcl, curvatu
 #spline_points = sample_spline(tck, num_points=1000)
 
 # Visualize the leading edge points and the spline
-#visualize_leading_edge_and_spline(mstore.mesh1_pcl, leading_edge_points, spline_points)
+visualize_curvature_based_leading_edge(mstore.mesh1_pcl, leading_edge_points)
 
 
 LE_sections = slice_point_cloud_with_visualization(mstore.mesh1_pcl, leading_edge_points, num_sections=6, threshold=0.5)

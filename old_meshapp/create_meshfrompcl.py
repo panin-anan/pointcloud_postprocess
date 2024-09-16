@@ -55,14 +55,19 @@ root.withdraw()
 mesh_before_path = filedialog.askopenfilename(title="Select the mesh file before grinding",
                                              filetypes=[("PLY files", "*.ply")])
 
-#Load mesh file: Before grinding and after grinding
-mesh_before_pcl = o3d.io.read_point_cloud(mesh_before_path)
+#create point cloud from trimesh
+mesh_before = o3d.io.read_triangle_mesh(mesh_before_path)
+mesh_before_pcl = mesh_before.sample_points_poisson_disk(number_of_points=40000)
+
+#Load point cloud directly
+#mesh_before_pcl = o3d.io.read_point_cloud(mesh_before_path)
 
 
+'''
 # Downsample the point cloud
 voxel_size = 0.0005 
 mesh_before_pcl = mesh_before_pcl.voxel_down_sample(voxel_size)
-
+'''
 
 
 #mesh_before_pcl = mesh_before.sample_points_uniformly(number_of_points=100000)
@@ -129,3 +134,4 @@ mesh_before_ball_pivoting = create_mesh_from_point_cloud(mesh_before_pcl)
 o3d.visualization.draw_geometries([mesh_before_pcl], window_name="Point Cloud", width=800, height=600)
 o3d.visualization.draw_geometries([mesh_before_ball_pivoting], window_name="TriMesh", width=800, height=600)
 
+o3d.io.write_triangle_mesh("Grinded.ply", mesh_before_ball_pivoting)
