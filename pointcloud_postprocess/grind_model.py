@@ -1,8 +1,4 @@
-#grinding model based on input worn blade point cloud and desired LE mesh
-
-# From recontour_LE, obtain desired LE mesh. Then this code use the scanned pcl and recontoured pcl
-# to calculate grinding parameters of 3 angle of grinding to obtain LE shape based on volume difference. 
-# FOR NOW: default as 3 angle of grinding: left right and middle.
+#grinding model based on input worn blade point cloud
 
 from mesh_processor import MeshProcessor
 from grindparam_predictor import load_data, preprocess_data, train_svr, evaluate_model
@@ -81,7 +77,10 @@ def predict_grind_param(mstore, feed_rate):
 
     # Output predictions
     predicted_rpm_force = pd.DataFrame(predictions, columns=['RPM', 'Force'])
-    print(predicted_rpm_force)
+    predicted_rpm_force['Sub_Section'] = range(1, len(mstore.lost_volumes) + 1)
+    
+    print(predicted_rpm_force[['Sub_Section', 'RPM', 'Force']])
+
 
 def main():
     print("Processing Meshes and Calculating Lost Volume...")
@@ -110,23 +109,23 @@ def main():
 
         # Sample points if loaded trimesh
         if mstore.mesh1_pcl == None:
-            mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=40000)
+            mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=60000)
         if mstore.mesh2_pcl == None:
-            mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=40000)
+            mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=60000)
         
         # Get Leading Edge points
-        mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=20, min_distance=40)
-        mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=20, min_distance=40)
+        mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=20, min_distance=20)
+        mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=20, min_distance=20)
 
         # Segment point cloud (flow axis)
-        mesh1_segments = mstore.segment_turbine_pcd(mstore.mesh1_pcl, mstore.mesh1_LE_points)
-        mesh2_segments = mstore.segment_turbine_pcd(mstore.mesh2_pcl, mstore.mesh2_LE_points)
+        mstore.mesh1_segments = mstore.segment_turbine_pcd(mstore.mesh1_pcl, mstore.mesh1_LE_points)
+        mstore.mesh2_segments = mstore.segment_turbine_pcd(mstore.mesh2_pcl, mstore.mesh2_LE_points)
 
         # Section point cloud (cross section axis)
-        mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.6)
-        mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.6, use_bounds=bounds)
+        mstore.mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.2)
+        mstore.mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.2, use_bounds=bounds)
 
-        for segment_idx, (worn_segment, desired_segment) in enumerate(zip(mesh1_sections, mesh2_sections), 1):
+        for segment_idx, (worn_segment, desired_segment) in enumerate(zip(mstore.mesh1_sections, mstore.mesh2_sections), 1):
             worn_sub_sections = worn_segment['sub_sections']
             desired_sub_sections = desired_segment['sub_sections']
 
@@ -143,8 +142,8 @@ def main():
                 o3d.io.write_triangle_mesh(worn_mesh_filename, worn_mesh)
                 o3d.io.write_triangle_mesh(desired_mesh_filename, desired_mesh)
                 '''
-
-                lost_volume = mstore.calculate_lost_volume(worn_section_mesh, desired_section_mesh)
+                
+                lost_volume = mstore.calculate_lost_volume(worn_section_mesh, desired_section_mesh, worn_sub_section, desired_sub_section)
                 mstore.lost_volumes.append(lost_volume)
                 mstore.worn_mesh_sections.append(worn_section_mesh)
                 mstore.desired_mesh_sections.append(desired_section_mesh)

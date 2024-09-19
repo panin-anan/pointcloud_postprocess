@@ -12,6 +12,10 @@ class MeshProcessor:
         self.mesh2_pcl = None
         self.mesh1_LE_points = None
         self.mesh2_LE_points = None
+        self.mesh1_segments = None
+        self.mesh2_segments = None
+        self.mesh1_sections = None
+        self.mesh2_sections = None
         self.worn_mesh_sections = []
         self.desired_mesh_sections = []
         self.lost_volumes = []
@@ -81,17 +85,17 @@ class MeshProcessor:
         for point in refined_leading_edge_points:
             if len(filtered_leading_edge_points) == 0 or np.all(np.linalg.norm(np.array(filtered_leading_edge_points) - point, axis=1) >= min_distance):
                 filtered_leading_edge_points.append(point)
-
+        '''
         #visualize
         leading_edge_pcd = o3d.geometry.PointCloud()
         leading_edge_pcd.points = o3d.utility.Vector3dVector(filtered_leading_edge_points)
         leading_edge_pcd.paint_uniform_color([1, 0, 0])
         o3d.visualization.draw_geometries([pcd, leading_edge_pcd])
-
+        '''
         return np.array(filtered_leading_edge_points)
 
 
-    #TO DO: now only work with y-axis, to be axis independent and follow LE spline    
+    #TO DO: now only work with y-axis, to be axis independent and follow LE spline, or just use segment_pcd_turbine    
     def segment_pcd(self, input_pcd, num_segments=3, axis='z'):
         # Convert point cloud to a numpy array
         points = np.asarray(input_pcd.points)
@@ -144,6 +148,7 @@ class MeshProcessor:
         print(f"Point cloud segmentation completed along {axis}-axis with colors!")
 
         return segmented_point_clouds
+
 
 
     def segment_turbine_pcd(self, input_pcd, leading_edge_points):
@@ -210,65 +215,148 @@ class MeshProcessor:
         return segmented_point_clouds
 
 
+    def compute_orthogonal_vectors(self, input_vector, plane_normal):
+        """Compute two vectors orthogonal to the input_vector, ensuring one lies along the cross-section plane."""
+        # Ensure the input vector is normalized
+        input_vector /= np.linalg.norm(input_vector)
+
+        # Adjust arbitrary vector selection
+        arbitrary_vector = np.array([1, 0, 0]) if np.abs(input_vector[0]) < 0.9 else np.array([0, 1, 0])
+
+        # Compute the first orthogonal vector, ensuring it's in the plane of the cross-section
+        perp_vector1 = np.cross(plane_normal, input_vector)
+        perp_vector1 /= np.linalg.norm(perp_vector1)
+
+        # Compute the second orthogonal vector which will lie in the cross-section plane
+        perp_vector2 = np.cross(input_vector, perp_vector1)
+        perp_vector2 /= np.linalg.norm(perp_vector2)
+
+        return input_vector, perp_vector1, perp_vector2
+
+    def visualize_vectors(self, origin, vectors, scale=1.0, colors=None):
+        """Visualize vectors as lines in Open3D."""
+        if colors is None:
+            colors = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Default to red, green, blue
+
+        lines = [[0, 1], [0, 2], [0, 3]]  # Connecting origin to the ends of the vectors
+        points = [origin]  # Add origin point
+
+        # Add scaled vectors as points
+        for vector in vectors:
+            points.append(origin + vector * scale)
+
+        line_set = o3d.geometry.LineSet(
+            points=o3d.utility.Vector3dVector(points),
+            lines=o3d.utility.Vector2iVector(lines),
+        )
+
+        # Assign colors to each vector
+        line_set.colors = o3d.utility.Vector3dVector(colors)
+
+        return line_set
 
     #TO DO: develop this more as it is now only 3 segments and cannot handle complex shape
     def section_leading_edge(self, input_segment, num_sections=3, mid_ratio=0.4, use_bounds=None, axis=0):
         points = np.asarray(input_segment.vertices if isinstance(input_segment, o3d.geometry.TriangleMesh) else input_segment.points)
-    
+        vis_elements = []
         # Sort by the specified axis
         leading_edge_points = self.detect_leading_edge_by_curvature(input_segment, curvature_threshold=(0.005, 0.04), k_neighbors=30, vicinity_radius=7, min_distance=15)
-        # Assuming leading_edge_points contains two points (start and end of the leading edge)
-        leading_edge_start = leading_edge_points[0]
-        leading_edge_end = leading_edge_points[-1]
+
+        cross_section = self.slice_point_cloud_mid(input_segment, leading_edge_points, num_sections=1, threshold=0.8)
+
+        def find_closest_leading_edge_point(section_points, leading_edge_points):
+            """Find the closest point in section_points to any point in leading_edge_points."""
+            min_distance = float('inf')
+            closest_point = None
+            for point in section_points:
+                distances = np.linalg.norm(leading_edge_points - point, axis=1)
+                closest_distance = np.min(distances)
+                if closest_distance < min_distance:
+                    min_distance = closest_distance
+                    closest_point = point
+            return closest_point
+
+        leading_edge_point_sec = find_closest_leading_edge_point(cross_section, leading_edge_points)
 
         # Calculate the leading edge vector
-        leading_edge_vector = leading_edge_end - leading_edge_start
-        leading_edge_vector /= np.linalg.norm(leading_edge_vector)  # Normalize the vector
+        initial_center = np.mean(cross_section, axis=0)
+        leading_edge_vector = leading_edge_point_sec - initial_center
+        leading_edge_vector /= np.linalg.norm(leading_edge_vector)
 
-        # Compute a plane normal perpendicular to the leading edge vector
-        # You can pick any axis perpendicular to the leading edge for now. Let's assume axis-aligned.
-        plane_normal = np.cross(leading_edge_vector, [1, 0, 0])  # Cross with the X-axis to get the normal to the leading edge
-        plane_normal /= np.linalg.norm(plane_normal)  # Normalize the plane normal
+        plane_normal = leading_edge_points[-1] - leading_edge_points[0]
+        plane_normal /= np.linalg.norm(plane_normal)
 
-        # Project points onto the plane perpendicular to the leading edge
-        projections = np.dot(points - leading_edge_start, plane_normal)
+        leading_edge_vector, perpendicular_axis, tangent_axis = self.compute_orthogonal_vectors(leading_edge_vector, plane_normal) 
 
-        # Sort the points based on their distance to the leading edge (projected on the plane)
-        sorted_indices = np.argsort(projections)
-        sorted_points = points[sorted_indices]
+        line_set = self.visualize_vectors(
+            origin=initial_center,
+            vectors=[leading_edge_vector, perpendicular_axis, tangent_axis],
+            scale=20.0  # Adjust scale for visual clarity
+        )
+        vis_elements.append(line_set)
 
-        # Compute the bounds for segmentation based on the projections
+        initial_center = np.mean(points, axis=0)
+
+        # Compute dot products (projections onto perpendicular vector)
+        projections = np.dot(points - initial_center, perpendicular_axis)
+
+        # Compute the range of projections to get min and max values
         min_val = projections.min()
         max_val = projections.max()
         total_range = max_val - min_val
 
-        # Allocate a fixed width for the center section (around the leading edge vector)
+        # Calculate the center width and side widths based on mid_ratio
         center_width = total_range * mid_ratio
-        side_width = (total_range - center_width) / 2  # Left and right sections get equal width
+        side_width = (total_range - center_width) / 2
 
         # Define boundaries for left, center, and right sections
         bounds = [
-            min_val,                        # Start of the left section
-            min_val + side_width,           # End of the left section and start of the center
+            min_val,                         # Start of the left section
+            min_val + side_width,            # End of the left section and start of the center
             min_val + side_width + center_width,  # End of the center section and start of the right
-            max_val                         # End of the right section
+            max_val                          # End of the right section
         ]
 
-        sub_sections = []
+        # Initialize containers for left, center, and right sections
+        left_section = []
+        center_section = []
+        right_section = []
+        sub_section = []
 
-        # Divide the points into left, center, and right sections based on their projection onto the plane
-        for i in range(3):  # 3 sections: left, center, right
-            lower_bound = bounds[i]
-            upper_bound = bounds[i + 1]
-            mask = (projections >= lower_bound) & (projections < upper_bound)
-            segment_indices = sorted_indices[mask]
-
-            if isinstance(input_segment, o3d.geometry.TriangleMesh):
-                sub_section = input_segment.select_by_index(segment_indices, vertex_only=True)
+        # Iterate through all points to categorize them based on their projections
+        for i, projection in enumerate(projections):
+            point = points[i]
+            if projection < bounds[1]:
+                # Point belongs to the left section
+                left_section.append(point)
+            elif bounds[1] <= projection < bounds[2]:
+                # Point belongs to the center section
+                center_section.append(point)
             else:
-                sub_section = input_segment.select_by_index(segment_indices)
+                # Point belongs to the right section
+                right_section.append(point)
 
-            sub_sections.append(sub_section)
+        # Convert the sections (numpy arrays) to Open3D PointCloud objects
+        left_pcd = o3d.geometry.PointCloud()
+        left_pcd.points = o3d.utility.Vector3dVector(np.array(left_section))
+        left_pcd.paint_uniform_color([1, 0, 0])  # Red for left section
+
+        center_pcd = o3d.geometry.PointCloud()
+        center_pcd.points = o3d.utility.Vector3dVector(np.array(center_section))
+        center_pcd.paint_uniform_color([0, 1, 0])  # Green for center section
+
+        right_pcd = o3d.geometry.PointCloud()
+        right_pcd.points = o3d.utility.Vector3dVector(np.array(right_section))
+        right_pcd.paint_uniform_color([0, 0, 1])  # Blue for right section
+
+        sub_sections = {left_pcd, center_pcd, right_pcd}
+
+        vis_elements.append(left_pcd)
+        vis_elements.append(center_pcd)
+        vis_elements.append(right_pcd)
+
+        # Visualize all sections and vectors
+        #o3d.visualization.draw_geometries(vis_elements, window_name="Sectioned Point Cloud with Vectors", width=800, height=600)
 
         return sub_sections, bounds
 
@@ -320,17 +408,14 @@ class MeshProcessor:
 
         return mesh
 
-    def calculate_lost_volume(self, mesh_before, mesh_after):
-        mesh_before.compute_vertex_normals()
-        mesh_after.compute_vertex_normals()
+    def calculate_lost_volume(self, mesh_1, mesh_2, pcd_1, pcd_2):
+        mesh_1.compute_vertex_normals()
+        mesh_2.compute_vertex_normals()
 
-        pcd_before = mesh_before.sample_points_poisson_disk(number_of_points=30000)
-        pcd_after = mesh_after.sample_points_poisson_disk(number_of_points=30000)
-
-        distances = pcd_after.compute_point_cloud_distance(pcd_before)
+        distances = pcd_2.compute_point_cloud_distance(pcd_1)
         distances = np.asarray(distances)
 
-        reference_area = mesh_after.get_surface_area()
+        reference_area = mesh_2.get_surface_area()
         volume_lost = np.mean(distances) * reference_area
 
         return volume_lost
@@ -338,3 +423,36 @@ class MeshProcessor:
     def random_color(self):
         """Generate a random RGB color."""
         return [random.random(), random.random(), random.random()]
+
+    def slice_point_cloud_mid(self, point_cloud, leading_edge_points, num_sections=1, threshold=1.0):
+        """Slice the point cloud into sections using leading edge points."""
+        vis_element = []
+        def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=1.0):
+            """Extract points lying near a specified plane."""
+           
+            plane_normal = plane_normal / np.linalg.norm(plane_normal)
+            distances = np.abs(np.dot(np.asarray(point_cloud.points) - plane_point, plane_normal))
+
+            mask = distances < threshold
+            points_on_plane = np.asarray(point_cloud.points)[mask]
+
+            points_on_plane_cloud = o3d.geometry.PointCloud()
+            points_on_plane_cloud.points = o3d.utility.Vector3dVector(points_on_plane)
+
+            return points_on_plane_cloud
+
+        start_point = leading_edge_points[0]
+        end_point = leading_edge_points[-1]
+        midpoint = (start_point + end_point) / 2
+
+        flow_axis = end_point - start_point
+        flow_axis /= np.linalg.norm(flow_axis)
+
+        
+        points_on_plane = extract_points_on_plane(point_cloud, midpoint, flow_axis, threshold)
+        '''
+        points_on_plane.paint_uniform_color([0, 0, 0])
+        vis_element.append(points_on_plane)
+        o3d.visualization.draw_geometries(vis_element)
+        '''
+        return np.asarray(points_on_plane.points)

@@ -63,80 +63,6 @@ def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=0.
     
     return points_on_plane_cloud
 
-def filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=50, point_threshold=5):
-    """Filter sections that are not close to each other and project the ones close to the same plane using mesh1 as the base."""
-    
-    filtered_sections_mesh1 = []
-    filtered_sections_mesh2 = []
-    
-    #vis_elements = []
-
-    for sec1, sec2 in zip(LE_sections_mesh1, LE_sections_mesh2):
-        # Calculate the mean point of each section
-        mean_sec1 = np.mean(sec1, axis=0)
-        mean_sec2 = np.mean(sec2, axis=0)
-        
-        # Calculate distance between the sections
-        distance = np.linalg.norm(mean_sec1 - mean_sec2)
-        
-        # Filter sections based on the threshold
-        if distance <= threshold:
-            filtered_sec1 = []
-            filtered_sec2 = []
-            
-            # Project sec2 points onto the plane of sec1
-            sec1_plane_normal = calculate_plane_normal(sec1)
-            projected_sec2 = project_points_to_plane(sec2, mean_sec1, sec1_plane_normal)
-            
-            tree_sec1 = cKDTree(sec1)
-            tree_sec2 = cKDTree(projected_sec2)
-
-            for point in sec1:
-                dist, _ = tree_sec2.query(point)
-                if dist <= point_threshold:
-                    filtered_sec1.append(point)
-
-            for point in projected_sec2:
-                dist, _ = tree_sec1.query(point)
-                if dist <= point_threshold:
-                    filtered_sec2.append(point)
-
-            filtered_sections_mesh1.append(np.array(filtered_sec1))
-            filtered_sections_mesh2.append(np.array(filtered_sec2))
-
-            # Visualize the projected sections
-            sec1_pcd = o3d.geometry.PointCloud()
-            sec1_pcd.points = o3d.utility.Vector3dVector(sec1)
-            sec1_pcd.paint_uniform_color([0, 1, 0])  # Green for mesh1
-
-            sec2_pcd = o3d.geometry.PointCloud()
-            sec2_pcd.points = o3d.utility.Vector3dVector(projected_sec2)
-            sec2_pcd.paint_uniform_color([1, 0, 0])  # Red for mesh2
-
-            #vis_elements.append(sec1_pcd)
-            #vis_elements.append(sec2_pcd)
-    
-    # Visualize the results
-    #o3d.visualization.draw_geometries(vis_elements, window_name="Filtered and Projected Sections", width=800, height=600)
-    
-    return filtered_sections_mesh1, filtered_sections_mesh2
-
-
-def calculate_plane_normal(section_points):
-    """Calculate the normal vector of the plane defined by the section points."""
-    pca = PCA(n_components=3)
-    pca.fit(section_points)
-    normal = pca.components_[-1]  # The normal is the last component
-    return normal
-
-
-def project_points_to_plane(points, plane_point, plane_normal):
-    """Project points onto a plane defined by a point and a normal."""
-    plane_normal = plane_normal / np.linalg.norm(plane_normal)
-    projected_points = points - np.dot(points - plane_point, plane_normal)[:, None] * plane_normal
-    return projected_points
-
-
 def slice_point_cloud_with_visualization(point_cloud, leading_edge_points, num_sections=10, threshold=0.1):
     """Slice the point cloud into sections using leading edge points."""
     vis_element = []
@@ -264,121 +190,86 @@ def adjust_center_and_le_for_symmetry(section_points, leading_edge_point, initia
     return center, LE_vector, vis_elements
 
 
-def shift_mesh2_and_leading_edge(mesh1_section, mesh2_section, leading_edge_point_mesh2, LE_vector):
-    """Shift mesh2 section and its leading edge point into the envelope of mesh1."""
-    LE_vector_norm = LE_vector / np.linalg.norm(LE_vector)
-
-    # Create KD trees for nearest neighbor search
-    tree_mesh1 = cKDTree(mesh1_section)
-    tree_mesh2 = cKDTree(mesh2_section)
-    
-    # Find nearest neighbors between mesh1_section and mesh2_section
-    distances1, _ = tree_mesh1.query(mesh2_section)
-    distances2, _ = tree_mesh2.query(mesh1_section)
-    
-    # Maximum distance between nearest neighbors
-    max_distance = max(np.max(distances1), np.max(distances2))
-    
-    # Shift mesh2 along the LE_vector by the maximum distance
-    shifted_mesh2_section = mesh2_section - (max_distance * LE_vector_norm)
-    
-    # Shift the leading edge point of mesh2 along the same LE_vector
-    shifted_leading_edge_point_mesh2 = leading_edge_point_mesh2 - (max_distance * LE_vector_norm)
-
-    return shifted_mesh2_section, shifted_leading_edge_point_mesh2
-
-
-def recontour_with_shift_and_projection(mesh1_sections, mesh2_sections, leading_edge_points_mesh2, tolerance=1e-3):
-    """Recontour mesh1 sections to match mesh2 sections, ensuring the contour fits within the original mesh1 boundary section by section."""
+def recontour_LE_sections(LE_sections, leading_edge_points, initial_target_radius=0.01, tolerance=1e-3):
+    """Recontour leading edge sections, ensuring the recontoured radius does not exceed the original distance from the adjusted center."""
     
     recontoured_sections = []
     vis_elements = []
-    adjusted_centers = []
 
-    for mesh1_section, mesh2_section in zip(mesh1_sections, mesh2_sections):
-        # 1. Determine the leading edge vector and center for mesh2 section
-        leading_edge_point_mesh2 = find_closest_leading_edge_point(mesh2_section, leading_edge_points_mesh2)
-        initial_center_mesh2 = np.mean(mesh2_section, axis=0)
+    for section_points in LE_sections:
+        # 1. Determine the leading edge vector and center
+        leading_edge_point = find_closest_leading_edge_point(section_points, leading_edge_points)
+        initial_center = np.mean(section_points, axis=0)
+        adjusted_center, LE_vector, vis_elements = adjust_center_and_le_for_symmetry(section_points, leading_edge_point, initial_center, vis_elements, tolerance)
+        shift_factor = 0.2
+        shift_down_length = shift_factor * np.linalg.norm(leading_edge_point - adjusted_center) 
 
-        # Use your method to adjust center and LE vector for symmetry
-        adjusted_center_mesh2, LE_vector, vis_elements = adjust_center_and_le_for_symmetry(
-            mesh2_section, leading_edge_point_mesh2, initial_center_mesh2, vis_elements, tolerance
-        )
+        recontoured_section = []
+        for point in section_points:
+            # Calculate the vector from the center to the current point
+            direction = point - adjusted_center  
+
+            # 2. Determine the area of recontouring (points above the center along the LE vector)
+            if np.dot(direction, LE_vector) > 0:
+                # Perpendicular direction to the leading edge vector
+                projection_onto_LE = np.dot(direction, LE_vector) * LE_vector
+                perpendicular_direction = direction - projection_onto_LE
+                original_distance = np.linalg.norm(perpendicular_direction)
+                perpendicular_distance_squared = np.dot(perpendicular_direction, perpendicular_direction)
+
+                # 3. Create new points following the parabola algorithm without exceeding original distance
+                target_radius = initial_target_radius
+                arc_distance = -target_radius * perpendicular_distance_squared
+
+                # Normalize the perpendicular direction
+                perpendicular_direction /= np.linalg.norm(perpendicular_direction)
+
+                
+                # Adjust the target radius if the new point exceeds the original distance
+                while np.abs(arc_distance) > original_distance:
+                    target_radius -= tolerance  # Reduce the radius to fit within the original distance
+                    arc_distance = -target_radius * perpendicular_distance_squared
+
+                    # Prevent target radius from becoming negative or too small
+                    if target_radius <= 0:
+                        arc_distance = original_distance
+                        break
+                
+                # Create the new recontoured point
+                new_point = adjusted_center + perpendicular_direction * arc_distance + projection_onto_LE
+                new_point -= LE_vector * shift_down_length
+
+                # 4. Remove old points above the new point profile
+                # If the original point is higher than the new point (along the LE vector), discard it
+                old_point_distance = np.linalg.norm(point - adjusted_center)
+                new_point_distance = np.linalg.norm(new_point - adjusted_center)
+                if np.dot((point - adjusted_center), LE_vector) > np.dot((new_point - adjusted_center), LE_vector) and new_point_distance <= old_point_distance:
+                    recontoured_section.append(new_point)
+                else:
+                    recontoured_section.append(point)
+            else:
+                # Leave points below the adjusted center unchanged
+                recontoured_section.append(point)
         
-        adjusted_centers.append(adjusted_center_mesh2)
-
-        # 2. Shift mesh2 section into the envelope of mesh1 section
-        shifted_mesh2_section, shifted_leading_edge_point_mesh2 = shift_mesh2_and_leading_edge(
-            mesh1_section, mesh2_section, leading_edge_point_mesh2, LE_vector
-        )
-
-        # 3. Recontour mesh1 section to fit within the shifted mesh2 section envelope
-        recontoured_section = recontour_section_to_fit_within_bounds(
-            mesh1_section, shifted_mesh2_section, adjusted_center_mesh2, LE_vector, shifted_leading_edge_point_mesh2, tolerance
-        )
-
         recontoured_sections.append(recontoured_section)
-        mesh1_point_cloud = o3d.geometry.PointCloud()
-        mesh1_point_cloud.points = o3d.utility.Vector3dVector(mesh1_section)
-        vis_elements.append(mesh1_point_cloud)
-        '''
-        mesh2_point_cloud = o3d.geometry.PointCloud()
-        mesh2_point_cloud.points = o3d.utility.Vector3dVector(mesh2_section)
-        mesh2_point_cloud.paint_uniform_color([1, 0, 0]) 
-        vis_elements.append(mesh2_point_cloud)
-        '''
+    
+    # Visualization (original sections and recontoured sections)
+    for section_id, section_points in enumerate(LE_sections):
         
-        shifted_mesh2_pcl = o3d.geometry.PointCloud()
-        shifted_mesh2_pcl.points = o3d.utility.Vector3dVector(shifted_mesh2_section)
-        shifted_mesh2_pcl.paint_uniform_color([0, 0, 1]) 
-        vis_elements.append(shifted_mesh2_pcl)
+        original_points = o3d.geometry.PointCloud()
+        original_points.points = o3d.utility.Vector3dVector(section_points)
+        original_points.paint_uniform_color([1, 0, 0])  # Red for original points
+        vis_elements.append(original_points)
+        
+        recontoured_points = o3d.geometry.PointCloud()
+        recontoured_points.points = o3d.utility.Vector3dVector(recontoured_sections[section_id])
+        recontoured_points.paint_uniform_color([0, 1, 0])  # Green for recontoured points
+        vis_elements.append(recontoured_points)
 
+    o3d.visualization.draw_geometries(vis_elements, window_name="Original and Recontoured Sections", width=800, height=600)
 
-    '''
-    point_cloud = o3d.geometry.PointCloud()
-    all_points = np.vstack(recontoured_sections)  # Stack all recontoured sections into a single array
-    point_cloud.points = o3d.utility.Vector3dVector(all_points)
-    point_cloud.paint_uniform_color([0, 0, 1]) 
-    vis_elements.append(point_cloud)
-    '''
-    o3d.visualization.draw_geometries(vis_elements, window_name="PCL Overlay", width=800, height=600)
 
     return recontoured_sections
-
-
-def recontour_section_to_fit_within_bounds(mesh1_section, shifted_mesh2_section, adjusted_center, LE_vector, leading_edge_point, tolerance=1e-3):
-    """Recontour mesh1 section to fit within the bounds of the shifted mesh2 section."""
-
-    #TO DO: Improve fit within bound to be smooth and has camber line aligned with original mesh 2 pcl
-
-    tree = cKDTree(shifted_mesh2_section)  # Nearest-neighbor search in shifted mesh2 section
-    new_mesh1_section = []
-
-    for point in mesh1_section:
-        # Find the closest point in shifted mesh2 section
-        dist, idx = tree.query(point)
-        target_point = shifted_mesh2_section[idx]
-
-        # Compute the adjustment vector
-        adjustment_vector = target_point - point
-
-        # Calculate the original distance from the leading edge point
-        original_distance = np.linalg.norm(point - leading_edge_point)
-
-        # Move the point towards the target, constrained to not exceed the original distance
-        new_point = point + adjustment_vector
-
-        # Ensure the new point does not exceed the original distance from the leading edge
-        new_distance = np.linalg.norm(new_point - leading_edge_point)
-        if new_distance > original_distance:
-            # Scale back the adjustment to fit within the original boundary
-            scale_factor = original_distance / new_distance
-            new_point = leading_edge_point + scale_factor * (new_point - leading_edge_point)
-
-        new_mesh1_section.append(new_point)
-
-    return np.array(new_mesh1_section)
-
 
 # -- Surface Mesh Generation --
 
@@ -428,16 +319,16 @@ def create_surface_mesh_from_sections(sections):
 mstore = MeshProcessor()
 
 mstore.load_mesh(1)
-mstore.load_mesh(2)
+#mstore.load_mesh(2)
 
 if mstore.mesh1_pcl == None:
     mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=60000)
-if mstore.mesh2_pcl == None:
-    mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=60000)
+#if mstore.mesh2_pcl == None:
+#    mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=60000)
 
 #curvature_array = mstore.estimate_curvature(mstore.mesh1_pcl)
 mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl)
-mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl)
+#mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl)
 #tck, u = fit_spline_to_leading_edge(mstore.mesh1_LE_points)
 
 # Sample points along the spline for visualization
@@ -446,27 +337,17 @@ mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pc
 # Visualize the leading edge points and the spline
 visualize_curvature_based_leading_edge(mstore.mesh1_pcl, mstore.mesh1_LE_points)
 
-#mesh1 is damaged blade, mesh2 is undamaged / ideal blade
 
-LE_sections_mesh1 = slice_point_cloud_with_visualization(mstore.mesh1_pcl, mstore.mesh1_LE_points, num_sections=2, threshold=0.8)
-LE_sections_mesh2 = slice_point_cloud_with_visualization(mstore.mesh2_pcl, mstore.mesh2_LE_points, num_sections=2, threshold=0.8)
-visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
+LE_sections_mesh1 = slice_point_cloud_with_visualization(mstore.mesh1_pcl, mstore.mesh1_LE_points, num_sections=1, threshold=0.8)
+#LE_sections_mesh2 = slice_point_cloud_with_visualization(mstore.mesh2_pcl, mstore.mesh2_LE_points, num_sections=1, threshold=0.8)
 
-LE_sections_mesh1, LE_sections_mesh2 = filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=60, point_threshold=15)
-visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
+#visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
 
+recontoured_LE_sections = recontour_LE_sections(LE_sections_mesh1, mstore.mesh1_LE_points, initial_target_radius=3)
 
 
-recontoured_sections = recontour_with_shift_and_projection(
-    LE_sections_mesh1, LE_sections_mesh2, mstore.mesh2_LE_points, tolerance=1e-3
-)
-print("final recontoured compared with ideal shape")
-visualize_pcl_overlay(recontoured_sections, LE_sections_mesh1)
-#recontoured_LE_sections = recontour_LE_sections(LE_sections_mesh1, mstore.mesh2_LE_points, initial_target_radius=3)
-
-'''
 smoothed_sections = smooth_sections(recontoured_LE_sections)
 turbine_surface = create_surface_mesh_from_sections(recontoured_LE_sections)
 
 o3d.visualization.draw_geometries([turbine_surface], window_name="Turbines", width=800, height=600)
-'''
+

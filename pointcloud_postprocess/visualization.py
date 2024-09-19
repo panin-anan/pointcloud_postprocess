@@ -1,8 +1,54 @@
 import open3d as o3d
 import numpy as np
 
+def convert_to_pointcloud(input_data):
+    """
+    Convert input data to an Open3D PointCloud
+    """
+    if isinstance(input_data, o3d.geometry.PointCloud):
+        return input_data
+    elif isinstance(input_data, np.ndarray):
+        # If the input is a numpy array, ensure it has the right shape
+        if len(input_data.shape) == 3:  # Array of ndarrays
+            if input_data.shape[-1] != 3:
+                raise ValueError(f"Each ndarray must have shape Nx3, but got shape {input_data.shape}")
+            # Concatenate all ndarrays along the first axis
+            input_data = np.concatenate(input_data, axis=0)
+        elif input_data.shape[1] != 3:
+            raise ValueError(f"Input numpy array must have shape Nx3, but got shape {input_data.shape}")
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points = o3d.utility.Vector3dVector(input_data)
+        return point_cloud
+    elif isinstance(input_data, list):
+        # Handle list of ndarrays
+        if all(isinstance(arr, np.ndarray) for arr in input_data):
+            concatenated_points = np.concatenate(input_data, axis=0)
+            point_cloud = o3d.geometry.PointCloud()
+            point_cloud.points = o3d.utility.Vector3dVector(concatenated_points)
+            return point_cloud
+        else:
+            raise ValueError("All elements in the list must be numpy ndarrays.")
+    else:
+        raise TypeError(f"Unsupported data type for conversion to PointCloud: {type(input_data)}")
+
+
 def visualize_mesh(mesh):
     o3d.visualization.draw_geometries(mesh, mesh_show_back_face=True)
+
+def visualize_pcl_overlay(pcl_1, pcl_2):
+    vis_elements = []
+
+    # Convert to point cloud if necessary
+    pcl_1 = convert_to_pointcloud(pcl_1)
+    pcl_2 = convert_to_pointcloud(pcl_2)
+
+    pcl_1.paint_uniform_color([1, 0, 0])  # Red for the first point cloud
+    vis_elements.append(pcl_1)
+    
+    pcl_2.paint_uniform_color([0, 1, 0])  # Green for the second point cloud
+    vis_elements.append(pcl_2)
+
+    o3d.visualization.draw_geometries(vis_elements, window_name="PCL Overlay", width=800, height=600)
 
 def visualize_meshes_overlay(worn_meshes=None, desired_meshes=None, directional_curve=None, planes=None, line_width=15.0):
     geometries = []
