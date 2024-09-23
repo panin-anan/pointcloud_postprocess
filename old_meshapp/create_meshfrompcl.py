@@ -56,11 +56,11 @@ mesh_before_path = filedialog.askopenfilename(title="Select the mesh file before
                                              filetypes=[("PLY files", "*.ply")])
 
 #create point cloud from trimesh
-mesh_before = o3d.io.read_triangle_mesh(mesh_before_path)
-mesh_before_pcl = mesh_before.sample_points_poisson_disk(number_of_points=40000)
+#mesh_before = o3d.io.read_triangle_mesh(mesh_before_path)
+#mesh_before_pcl = mesh_before.sample_points_poisson_disk(number_of_points=40000)
 
 #Load point cloud directly
-#mesh_before_pcl = o3d.io.read_point_cloud(mesh_before_path)
+mesh_before_pcl = o3d.io.read_point_cloud(mesh_before_path)
 
 
 '''

@@ -1,9 +1,8 @@
 #grinding model based on input worn blade point cloud
 
 from mesh_processor import MeshProcessor
+from mesh_visualizer import MeshVisualizer
 from grindparam_predictor import load_data, preprocess_data, train_svr, evaluate_model
-from visualization import visualize_mesh, visualize_meshes_overlay, visualize_sub_section, project_worn_to_desired, visualize_lost_material
-
 
 import os
 import open3d as o3d
@@ -65,8 +64,8 @@ def create_grind_model(mstore):
 def predict_grind_param(mstore, feed_rate):
     # Prepare inputs for the SVR model (lost volume + feed rate for each section)
     input_data = pd.DataFrame({
-        'Feed_Rate': [feed_rate] * len(mstore.lost_volumes),
-        'Lost_Volume': mstore.lost_volumes
+        'Feed_Rate': [feed_rate] * len(mstore.grind_params),
+        'Lost_Volume': [param['lost_volume'] for param in mstore.grind_params]
     })
 
     # Scale the input_data using the stored scaler
@@ -75,18 +74,19 @@ def predict_grind_param(mstore, feed_rate):
     # Predict the RPM and Force using the lost volume and feed rate
     predictions = mstore.model.predict(input_data_scaled)
 
-    # Output predictions
+    # Output predictions with segment and subsection indices
     predicted_rpm_force = pd.DataFrame(predictions, columns=['RPM', 'Force'])
-    predicted_rpm_force['Sub_Section'] = range(1, len(mstore.lost_volumes) + 1)
+    predicted_rpm_force['Segment'] = [param['segment_idx'] for param in mstore.grind_params]
+    predicted_rpm_force['Sub_Section'] = [param['sub_section_idx'] for param in mstore.grind_params]
     
-    print(predicted_rpm_force[['Sub_Section', 'RPM', 'Force']])
-
+    # Print results with correct segment and subsection designations
+    print(predicted_rpm_force[['Segment', 'Sub_Section', 'RPM', 'Force']])
 
 def main():
     print("Processing Meshes and Calculating Lost Volume...")
 
     mstore = MeshProcessor()
-
+    mvis = MeshVisualizer()
     # Specify the directory to save and load sections
     section_directory = "mesh_sections"
 
@@ -122,8 +122,10 @@ def main():
         mstore.mesh2_segments = mstore.segment_turbine_pcd(mstore.mesh2_pcl, mstore.mesh2_LE_points)
 
         # Section point cloud (cross section axis)
-        mstore.mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.2)
-        mstore.mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.2, use_bounds=bounds)
+        mstore.mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.3)
+        mstore.mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.3, use_bounds=bounds)
+
+        mstore.grind_params = []
 
         for segment_idx, (worn_segment, desired_segment) in enumerate(zip(mstore.mesh1_sections, mstore.mesh2_sections), 1):
             worn_sub_sections = worn_segment['sub_sections']
@@ -134,6 +136,11 @@ def main():
                 worn_section_mesh = mstore.create_mesh_from_pcl(worn_sub_section)
                 desired_section_mesh = mstore.create_mesh_from_pcl(desired_sub_section)
 
+                lost_volume = mstore.calculate_lost_volume(worn_section_mesh, desired_section_mesh, worn_sub_section, desired_sub_section)
+                mstore.lost_volumes.append(lost_volume)
+                mstore.worn_mesh_sections.append(worn_section_mesh)
+                mstore.desired_mesh_sections.append(desired_section_mesh)
+
                 '''
                 # Save the converted meshes to disk (in case need repetitive testing)
                 worn_mesh_filename = os.path.join(mesh_directory, f"worn_segment_{segment_idx}_subsection_{sub_section_idx}.ply")
@@ -143,15 +150,17 @@ def main():
                 o3d.io.write_triangle_mesh(desired_mesh_filename, desired_mesh)
                 '''
                 
-                lost_volume = mstore.calculate_lost_volume(worn_section_mesh, desired_section_mesh, worn_sub_section, desired_sub_section)
-                mstore.lost_volumes.append(lost_volume)
-                mstore.worn_mesh_sections.append(worn_section_mesh)
-                mstore.desired_mesh_sections.append(desired_section_mesh)
+                mstore.grind_params.append({
+                    'segment_idx': segment_idx,
+                    'sub_section_idx': sub_section_idx,
+                    'lost_volume': lost_volume
+                })
+                
                 print(f"Lost Volume for Segment {segment_idx}, Sub-section {sub_section_idx}: {lost_volume:.2f} mm^3")
         
 
 
-    visualize_meshes_overlay(mstore.worn_mesh_sections, mstore.desired_mesh_sections)
+    mvis.visualize_meshes_overlay(mstore.worn_mesh_sections, mstore.desired_mesh_sections)
     #visualize_lost_material(mstore.worn_mesh_sections, mstore.desired_mesh_sections)
 
         

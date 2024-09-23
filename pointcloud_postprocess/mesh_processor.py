@@ -3,6 +3,7 @@ import numpy as np
 from tkinter import filedialog, messagebox
 import tkinter as tk
 import random
+from scipy.spatial import cKDTree
 
 class MeshProcessor:
     def __init__(self):
@@ -85,6 +86,8 @@ class MeshProcessor:
         for point in refined_leading_edge_points:
             if len(filtered_leading_edge_points) == 0 or np.all(np.linalg.norm(np.array(filtered_leading_edge_points) - point, axis=1) >= min_distance):
                 filtered_leading_edge_points.append(point)
+        
+
         '''
         #visualize
         leading_edge_pcd = o3d.geometry.PointCloud()
@@ -92,8 +95,32 @@ class MeshProcessor:
         leading_edge_pcd.paint_uniform_color([1, 0, 0])
         o3d.visualization.draw_geometries([pcd, leading_edge_pcd])
         '''
-        return np.array(filtered_leading_edge_points)
 
+        filtered_leading_edge_points = np.array(filtered_leading_edge_points)
+        #filtered_leading_edge_points = self.remove_outliers(filtered_leading_edge_points)
+
+        return filtered_leading_edge_points
+
+    def remove_outliers(self, points):
+        """Remove outliers based on 2 standard deviation rule."""
+
+        tree = cKDTree(points)
+
+        distances = []
+        for point in points:
+            dist, _ = tree.query(point, k=2)  # k=2 to avoid self-distance
+            distances.append(dist[1])  # Second nearest neighbor distance
+
+        mean_distance = np.mean(distances)
+        std_distance = np.std(distances)
+
+        # Use 2 standard deviations to filter outliers
+        inliers = []
+        for i, point in enumerate(points):
+            if np.abs(distances[i] - mean_distance) <= 2 * std_distance:
+                inliers.append(point)
+
+        return np.array(inliers)
 
     #TO DO: now only work with y-axis, to be axis independent and follow LE spline, or just use segment_pcd_turbine    
     def segment_pcd(self, input_pcd, num_segments=3, axis='z'):
