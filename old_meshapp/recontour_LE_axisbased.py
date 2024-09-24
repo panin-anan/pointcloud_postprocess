@@ -9,37 +9,6 @@ from visualization import visualize_meshes_overlay, visualize_section_pcl
 
 # Preprocess Point Cloud 
 
-def LE_radius_from_pcl(point_cloud):
-    """
-    Fit a circle to the leading edge points and return the radius.
-    """
-    points = np.asarray(point_cloud.points)
-    # Helper functions for circle fitting
-
-    def calc_R(xc, yc, points):
-        """ calculate the distance of each 2D point from the center (xc, yc) """
-        return np.sqrt((points[:, 0] - xc) ** 2 + (points[:, 1] - yc) ** 2)
-
-    def f(c, points):
-        """ calculate the algebraic distance between the data points and the mean circle centered at c=(xc, yc) """
-        Ri = calc_R(*c, points)
-        return Ri - Ri.mean()
-
-    # We assume the leading edge is in the XY plane and use only x and y for the circle fit
-    xy_points = points[:, :2]  # Take only the x and y coordinates
-
-    # Estimate the center as the mean of the points
-    center_estimate = np.mean(xy_points, axis=0)
-    
-    # Perform least squares fitting
-    center, ier = leastsq(f, center_estimate, args=(xy_points,))
-    
-    # Get the fitted radius
-    LE_radius = calc_R(*center, xy_points).mean()
-
-    return center, LE_radius
-
-
 def find_directional_curve(pcd, num_sections=12, flow_axis='z', swap_LE_axes=False):
     """
     Generate the directional curve based on local maxima in the leading edge direction for each section.

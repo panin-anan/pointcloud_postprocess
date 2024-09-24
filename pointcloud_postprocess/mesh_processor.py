@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox
 import tkinter as tk
 import random
 from scipy.spatial import cKDTree
+import matplotlib.pyplot as plt
 
 class MeshProcessor:
     def __init__(self):
@@ -64,9 +65,34 @@ class MeshProcessor:
             curvature = eigenvalues[0] / np.sum(eigenvalues)
             curvatures.append(curvature)
 
+        normalized_curvatures = (curvatures - np.min(curvatures)) / (np.max(curvatures) - np.min(curvatures))
+    
+        # Assign colors based on normalized curvature
+        colors = plt.get_cmap('jet')(normalized_curvatures)[:, :3]  # Use colormap 'jet' and ignore alpha channel
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        '''
+        # Visualize the point cloud with curvature-based colors
+        vis = o3d.visualization.VisualizerWithEditing()
+        vis.create_window(window_name='Curvature Visualization', width=800, height=600)
+        vis.add_geometry(pcd)
+
+        vis.run()  # Open the visualizer window
+        vis.destroy_window()  # Close the window once interaction is done
+
+        # After running, the selected points are stored in the VisualizerWithEditing object
+        picked_indices = vis.get_picked_points()
+
+        # Print curvature values for the selected points
+        for idx in picked_indices:
+            print(f"Curvature at point {idx}: {curvatures[idx]}")
+        '''
+
         return np.array(curvatures)
 
-    def detect_leading_edge_by_curvature(self, pcd, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=20, min_distance=40):
+    #Tuning parameter for testing CAD blade: curvature_threshold=(0.005, 0.04), k_neighbors=30, vicinity_radius=20, min_distance=40
+
+    def detect_leading_edge_by_curvature(self, pcd, curvature_threshold=(0.01, 0.2), k_neighbors=30, vicinity_radius=0.004, min_distance=0.004):
         """Detect leading edge points based on curvature and further refine them."""
         curvatures = self.estimate_curvature(pcd, k_neighbors=k_neighbors)
         lower_bound, upper_bound = curvature_threshold
@@ -81,13 +107,13 @@ class MeshProcessor:
                 highest_curvature_idx = idx_neigh[np.argmax(curvatures[idx_neigh])]
                 refined_leading_edge_points.append(pcd.points[highest_curvature_idx])
 
+
         # Remove points too close to each other
         filtered_leading_edge_points = []
         for point in refined_leading_edge_points:
             if len(filtered_leading_edge_points) == 0 or np.all(np.linalg.norm(np.array(filtered_leading_edge_points) - point, axis=1) >= min_distance):
                 filtered_leading_edge_points.append(point)
         
-
         '''
         #visualize
         leading_edge_pcd = o3d.geometry.PointCloud()
@@ -121,62 +147,6 @@ class MeshProcessor:
                 inliers.append(point)
 
         return np.array(inliers)
-
-    #TO DO: now only work with y-axis, to be axis independent and follow LE spline, or just use segment_pcd_turbine    
-    def segment_pcd(self, input_pcd, num_segments=3, axis='z'):
-        # Convert point cloud to a numpy array
-        points = np.asarray(input_pcd.points)
-
-        # Determine which axis to use for segmentation
-        axis_dict = {'x': 0, 'y': 1, 'z': 2}
-        axis_idx = axis_dict[axis]
-
-        # Get min and max values along the chosen axis
-        axis_min, axis_max = points[:, axis_idx].min(), points[:, axis_idx].max()
-        segment_size = (axis_max - axis_min) / num_segments
-        segmented_point_clouds = []
-
-        # Define a list of colors for each segment
-        colors = [
-            [1, 0, 0],  # Red
-            [0, 1, 0],  # Green
-            [0, 0, 1],  # Blue
-            [1, 1, 0],  # Yellow
-            [0, 1, 1],  # Cyan
-            [1, 0, 1],  # Magenta
-        ]
-
-        # Segment the point cloud along the specified axis
-        for i in range(num_segments):
-            lower_bound = axis_min + i * segment_size
-            upper_bound = axis_min + (i + 1) * segment_size
-
-            # Find the indices of points within the current segment
-            segment_indices = np.where((points[:, axis_idx] >= lower_bound) & (points[:, axis_idx] < upper_bound))[0]
-
-            # Create a new point cloud for this segment
-            segment_pcd = o3d.geometry.PointCloud()
-            segment_pcd.points = o3d.utility.Vector3dVector(points[segment_indices])
-
-            # Assign color to each point based on the current segment
-            color = colors[i % len(colors)]  # Cycle through the colors if num_segments > len(colors)
-            segment_colors = np.tile(color, (len(segment_indices), 1))  # Repeat the color for all points
-            segment_pcd.colors = o3d.utility.Vector3dVector(segment_colors)
-
-            # Store the segmented point cloud
-            segmented_point_clouds.append(segment_pcd)
-
-        # Optionally visualize the segments with colors
-        o3d.visualization.draw_geometries(segmented_point_clouds, 
-                                          window_name="Segmented Point Cloud Visualization", 
-                                          width=800, 
-                                          height=600)
-
-        print(f"Point cloud segmentation completed along {axis}-axis with colors!")
-
-        return segmented_point_clouds
-
-
 
     def segment_turbine_pcd(self, input_pcd, leading_edge_points):
         # Convert point cloud to a numpy array
@@ -287,9 +257,9 @@ class MeshProcessor:
         points = np.asarray(input_segment.vertices if isinstance(input_segment, o3d.geometry.TriangleMesh) else input_segment.points)
         vis_elements = []
         # Sort by the specified axis
-        leading_edge_points = self.detect_leading_edge_by_curvature(input_segment, curvature_threshold=(0.005, 0.04), k_neighbors=30, vicinity_radius=7, min_distance=15)
+        leading_edge_points = self.detect_leading_edge_by_curvature(input_segment, curvature_threshold=(0.01, 0.2), k_neighbors=40, vicinity_radius=0.0004, min_distance=0.0004)
 
-        cross_section = self.slice_point_cloud_mid(input_segment, leading_edge_points, num_sections=1, threshold=0.8)
+        cross_section = self.slice_point_cloud_mid(input_segment, leading_edge_points, num_sections=1, threshold=0.0001)
 
         def find_closest_leading_edge_point(section_points, leading_edge_points):
             """Find the closest point in section_points to any point in leading_edge_points."""
@@ -387,7 +357,7 @@ class MeshProcessor:
 
         return sub_sections, bounds
 
-    def section_leading_edge_on_segmentedPCL(self, segmented_point_clouds, leading_edge_points, num_sections=3, mid_ratio=0.4, use_bounds=None):
+    def section_leading_edge_on_segmentedPCL(self, segmented_point_clouds, leading_edge_points, num_sections=3, mid_ratio=0.6, use_bounds=None):
         all_sub_sections = []
         vis_element = []
     
@@ -451,10 +421,10 @@ class MeshProcessor:
         """Generate a random RGB color."""
         return [random.random(), random.random(), random.random()]
 
-    def slice_point_cloud_mid(self, point_cloud, leading_edge_points, num_sections=1, threshold=1.0):
+    def slice_point_cloud_mid(self, point_cloud, leading_edge_points, num_sections=1, threshold=0.0001):
         """Slice the point cloud into sections using leading edge points."""
         vis_element = []
-        def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=1.0):
+        def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=0.0001):
             """Extract points lying near a specified plane."""
            
             plane_normal = plane_normal / np.linalg.norm(plane_normal)

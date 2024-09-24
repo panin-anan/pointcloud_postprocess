@@ -87,6 +87,18 @@ def main():
 
     mstore = MeshProcessor()
     mvis = MeshVisualizer()
+
+    scale_factor = 1.0
+    thresholds = {
+        "plane_threshold": 0.0001 * scale_factor,
+        "curvature_threshold": 0.005 * scale_factor,
+        "project_tolerance": 0.010 * scale_factor,
+        "point_threshold": 0.005 * scale_factor,
+        "vicinity_radius": 0.004 * scale_factor,
+        "min_distance": 0.004 * scale_factor,
+        "tolerance": 1e-8 * scale_factor,
+    }
+
     # Specify the directory to save and load sections
     section_directory = "mesh_sections"
 
@@ -109,21 +121,21 @@ def main():
 
         # Sample points if loaded trimesh
         if mstore.mesh1_pcl == None:
-            mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=60000)
+            mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=100000)
         if mstore.mesh2_pcl == None:
-            mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=60000)
+            mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=100000)
         
         # Get Leading Edge points
-        mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=20, min_distance=20)
-        mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, curvature_threshold=(0.005, 0.04), k_neighbors=50, vicinity_radius=20, min_distance=20)
+        mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
+        mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
 
         # Segment point cloud (flow axis)
         mstore.mesh1_segments = mstore.segment_turbine_pcd(mstore.mesh1_pcl, mstore.mesh1_LE_points)
         mstore.mesh2_segments = mstore.segment_turbine_pcd(mstore.mesh2_pcl, mstore.mesh2_LE_points)
 
         # Section point cloud (cross section axis)
-        mstore.mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.3)
-        mstore.mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.3, use_bounds=bounds)
+        mstore.mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.5)
+        mstore.mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.5, use_bounds=bounds)
 
         mstore.grind_params = []
 

@@ -55,12 +55,23 @@ class MeshVisualizer:
         pcl_2 = self.convert_to_pointcloud(pcl_2)
 
         pcl_1.paint_uniform_color([1, 0, 0])  # Red for the first point cloud
-        vis_elements.append(pcl_1)
-
         pcl_2.paint_uniform_color([0, 1, 0])  # Green for the second point cloud
-        vis_elements.append(pcl_2)
 
-        o3d.visualization.draw_geometries(vis_elements, window_name="PCL Overlay", width=800, height=600)
+        # Initialize the visualizer
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(window_name="PCL Overlay", width=800, height=600)
+
+        # Add point clouds to the visualizer
+        vis.add_geometry(pcl_1)
+        vis.add_geometry(pcl_2)
+
+        # Access rendering options
+        render_option = vis.get_render_option()
+        render_option.point_size = 5.0  # Set point size for both clouds
+
+        # Run the visualizer
+        vis.run()
+        vis.destroy_window()
 
     def visualize_meshes_overlay(self, worn_meshes=None, desired_meshes=None, directional_curve=None, planes=None, line_width=15.0):
         geometries = []
@@ -137,6 +148,19 @@ class MeshVisualizer:
         vis.run()
         vis.destroy_window()
 
+    def visualize_spline_with_pcl(self, pcl, spline_points):
+        """Visualize the spline along with the original leading edge points."""
+        pcl.paint_uniform_color([1, 0, 0])  # Red for pcl
+        # Create a point cloud for the spline points
+        pcl_spline = o3d.geometry.PointCloud()
+        pcl_spline.points = o3d.utility.Vector3dVector(spline_points)
+        pcl_spline.paint_uniform_color([0, 1, 0])  # Green for spline
+
+        # Visualize both point clouds
+        o3d.visualization.draw_geometries([pcl, pcl_spline],
+                                          window_name="Spline and Leading Edge Points",
+                                          width=800, height=600)
+
     '''
     def visualize_sub_section(self, sub_section):
         colors = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # RGB colors for each sub-curve
@@ -187,6 +211,42 @@ class MeshVisualizer:
         for i in range(len(worn_meshes)):
             lost_visualization = project_worn_to_desired(worn_meshes[i], desired_meshes[i])
             o3d.visualization.draw_geometries([worn_meshes[i], desired_meshes[i], lost_visualization])
+
+    def visualize_sections_with_leading_edges(self, sections, le_points):
+        """
+        Visualize sections along with their detected leading edge points.
+
+        Parameters:
+        - sections: List of 2D arrays, where each array is a section of the point cloud (Nx3).
+        - le_points: List of leading edge point coordinates.
+        """
+        geometries = []
+
+        # Convert sections into Open3D point clouds and leading edge points into spheres for visualization
+        for section, le_center in zip(sections, le_points):
+            # Create a point cloud for the section
+            section_pcd = o3d.geometry.PointCloud()
+            section_pcd.points = o3d.utility.Vector3dVector(section)
+            geometries.append(section_pcd)
+
+            # Create a small sphere for the leading edge point for visualization
+            le_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.0004)
+            le_sphere.translate(le_center)  # Move the sphere to the leading edge point
+            le_sphere.paint_uniform_color([1, 0, 0])  # Color the leading edge red
+            geometries.append(le_sphere)
+
+        combined_points = np.vstack(sections)
+        center_point = np.mean(combined_points, axis=0)
+        
+        # Create the coordinate frame at the center point
+        coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.02)
+
+        # Translate the coordinate frame to the center of the point clouds
+        coordinate_frame = coordinate_frame.translate(center_point)
+        geometries.append(coordinate_frame)
+        # Visualize the sections and leading edge points
+        o3d.visualization.draw_geometries(geometries, window_name="Sections and Leading Edges")
+
     '''
     def visualize_section_pcl(self, sections):
         geometries = []

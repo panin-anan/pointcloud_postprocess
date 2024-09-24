@@ -1,5 +1,6 @@
 import numpy as np
 import open3d as o3d
+import gc
 from scipy.optimize import leastsq
 from scipy.interpolate import splprep, splev
 import matplotlib.pyplot as plt
@@ -12,7 +13,7 @@ from mesh_visualizer import MeshVisualizer
 
 # -- Utility Functions for Point Cloud Processing --
 
-def fit_spline_to_leading_edge(leading_edge_points, smoothing_factor=1e-3):
+def fit_spline_to_leading_edge(leading_edge_points, smoothing_factor=1e-5):
     """Fit a spline to the detected leading edge points."""
     leading_edge_points = np.unique(np.asarray(leading_edge_points), axis=0)
     tck, u = splprep([leading_edge_points[:, 0], leading_edge_points[:, 1], leading_edge_points[:, 2]], s=smoothing_factor)
@@ -31,7 +32,7 @@ def point_to_plane_distance(points, plane_point, plane_normal):
     plane_normal = plane_normal / np.linalg.norm(plane_normal)
     return np.abs(np.dot(points - plane_point, plane_normal))
 
-def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=0.4):
+def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=0.0004):
     """Extract points lying near a specified plane."""
     distances = point_to_plane_distance(np.asarray(point_cloud.points), plane_point, plane_normal)
     mask = distances < threshold
@@ -42,9 +43,9 @@ def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=0.
     
     return points_on_plane_cloud
 
-def filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=50, point_threshold=5):
+def filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=0.050, point_threshold=0.005):
     """Filter sections that are not close to each other and project the ones close to the same plane using mesh1 as the base."""
-    
+
     filtered_sections_mesh1 = []
     filtered_sections_mesh2 = []
     
@@ -101,7 +102,7 @@ def project_points_to_plane(points, plane_point, plane_normal):
     return projected_points
 
 
-def slice_point_cloud_with_visualization(point_cloud, leading_edge_points, num_sections=10, threshold=0.1):
+def slice_point_cloud_with_visualization(point_cloud, leading_edge_points, num_sections=6, threshold=0.0003):
     """Slice the point cloud into sections using leading edge points."""
     vis_element = []
     sections = []
@@ -414,37 +415,52 @@ def main():
     if mstore.mesh2_pcl == None:
         mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=60000)
 
-    #curvature_array = mstore.estimate_curvature(mstore.mesh1_pcl)
-    mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl)
-    mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl)
-    #tck, u = fit_spline_to_leading_edge(mstore.mesh1_LE_points)
+    scale_factor = 1.0
+    thresholds = {
+        "plane_threshold": 0.0001 * scale_factor,
+        "curvature_threshold": 0.005,                   #manually input
+        "project_tolerance": 0.015 * scale_factor,
+        "point_threshold": 0.005 * scale_factor,
+        "vicinity_radius": 0.004 * scale_factor,
+        "min_distance": 0.004 * scale_factor,
+        "tolerance": 1e-8 * scale_factor,
+    }
 
+    curvature_array = mstore.estimate_curvature(mstore.mesh1_pcl)
+
+    #Tuning parameter for testing CAD blade: curvature_threshold=(0.005, 0.04), k_neighbors=30, vicinity_radius=20, min_distance=40
+    mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
+    mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
+    
+
+    tck, u = fit_spline_to_leading_edge(mstore.mesh1_LE_points)
     # Sample points along the spline for visualization
-    #spline_points = sample_spline(tck, num_points=1000)
+    spline_points = sample_spline(tck, num_points=500)
 
+    '''
+    mvis.visualize_spline_with_pcl(mstore.mesh1_pcl, spline_points)
+    
     # Visualize the leading edge points and the spline
+    print(f"displaying leading edge points with pcl: {len(mstore.mesh1_LE_points)} points")
     mvis.visualize_pcl_overlay(mstore.mesh1_pcl, mstore.mesh1_LE_points)
-
+    '''
     #mesh1 is damaged blade, mesh2 is undamaged / ideal blade
 
-    LE_sections_mesh1 = slice_point_cloud_with_visualization(mstore.mesh1_pcl, mstore.mesh1_LE_points, num_sections=2, threshold=0.8)
-    LE_sections_mesh2 = slice_point_cloud_with_visualization(mstore.mesh2_pcl, mstore.mesh2_LE_points, num_sections=2, threshold=0.8)
+    LE_sections_mesh1 = slice_point_cloud_with_visualization(mstore.mesh1_pcl, mstore.mesh1_LE_points, num_sections=2, threshold=thresholds["plane_threshold"])
+    LE_sections_mesh2 = slice_point_cloud_with_visualization(mstore.mesh2_pcl, mstore.mesh2_LE_points, num_sections=2, threshold=thresholds["plane_threshold"])
+
     mvis.visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
 
-    LE_sections_mesh1, LE_sections_mesh2 = filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=60, point_threshold=15)
-    mvis.visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
 
+    LE_sections_mesh1, LE_sections_mesh2 = filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=thresholds["project_tolerance"], point_threshold=thresholds["point_threshold"])
+    mvis.visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
 
 
     recontoured_sections, recontoured_sections_pcl = recontour_with_shift_and_projection(
-        LE_sections_mesh1, LE_sections_mesh2, mstore.mesh2_LE_points, tolerance=1e-3
+        LE_sections_mesh1, LE_sections_mesh2, mstore.mesh2_LE_points, tolerance=thresholds["tolerance"]
     )
-    print("final recontoured compared with ideal shape")
 
-
-    turbine_surface = mstore.create_mesh_from_pcl(recontoured_sections_pcl)
-
-    o3d.visualization.draw_geometries([turbine_surface], window_name="Turbines", width=800, height=600)
+    
 
 
 if __name__ == "__main__":
