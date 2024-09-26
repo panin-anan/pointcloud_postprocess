@@ -14,13 +14,14 @@ class MeshProcessor:
         self.mesh2_pcl = None
         self.mesh1_LE_points = None
         self.mesh2_LE_points = None
-        self.mesh1_segments = None
-        self.mesh2_segments = None
+        self.mesh1_segments = None                  #not in use for axis-based 
+        self.mesh2_segments = None                  #not in use for axis-based
         self.mesh1_sections = None
         self.mesh2_sections = None
-        self.worn_mesh_sections = []
-        self.desired_mesh_sections = []
+        self.worn_mesh_sections = []                #not in use for axis-based
+        self.desired_mesh_sections = []             #not in use for axis-based
         self.lost_volumes = []
+        self.grind_params = []
         self.y_bounds = None
         self.model = None
         self.scaler = None
@@ -453,3 +454,45 @@ class MeshProcessor:
         o3d.visualization.draw_geometries(vis_element)
         '''
         return np.asarray(points_on_plane.points)
+
+    def rotate_point_cloud(self, pcd, theta_x=0, theta_y=0, theta_z=0):
+        """
+        Rotate the point cloud using independent rotation angles for each axis.
+
+        Parameters:
+        - pcd: The input Open3D point cloud object.
+        - theta_x: Rotation angle around the X-axis (in radians).
+        - theta_y: Rotation angle around the Y-axis (in radians).
+        - theta_z: Rotation angle around the Z-axis (in radians).
+
+        Returns:
+        - rotated_pcd: A new point cloud with the combined rotation applied.
+        """
+        # Rotation matrix for X-axis
+        R_x = np.array([
+            [1, 0, 0],
+            [0, np.cos(theta_x), -np.sin(theta_x)],
+            [0, np.sin(theta_x), np.cos(theta_x)]
+        ])
+
+        # Rotation matrix for Y-axis
+        R_y = np.array([
+            [np.cos(theta_y), 0, np.sin(theta_y)],
+            [0, 1, 0],
+            [-np.sin(theta_y), 0, np.cos(theta_y)]
+        ])
+
+        # Rotation matrix for Z-axis
+        R_z = np.array([
+            [np.cos(theta_z), -np.sin(theta_z), 0],
+            [np.sin(theta_z), np.cos(theta_z), 0],
+            [0, 0, 1]
+        ])
+
+        # Combined rotation: First rotate around X, then Y, then Z
+        R = R_z @ R_y @ R_x
+
+        # Apply the combined rotation to the point cloud
+        rotated_pcd = pcd.rotate(R, center=(0, 0, 0))  # Rotate around the origin
+
+        return rotated_pcd

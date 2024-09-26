@@ -1,6 +1,5 @@
 import numpy as np
 import open3d as o3d
-import gc
 from scipy.optimize import leastsq
 from scipy.interpolate import splprep, splev
 import matplotlib.pyplot as plt
@@ -10,125 +9,10 @@ from scipy.spatial import cKDTree
 
 from mesh_processor import MeshProcessor
 from mesh_visualizer import MeshVisualizer
+from grindparam_predictor import load_data, preprocess_data, train_svr, evaluate_model, create_grind_model, predict_grind_param
 
-# -- Section Processing and Symmetry Adjustment --
-
-def point_to_plane_distance(points, plane_point, plane_normal):
-    """Calculate distance from points to a plane."""
-    plane_normal = plane_normal / np.linalg.norm(plane_normal)
-    return np.abs(np.dot(points - plane_point, plane_normal))
-
-def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=0.0004):
-    """Extract points lying near a specified plane."""
-    distances = point_to_plane_distance(np.asarray(point_cloud.points), plane_point, plane_normal)
-    mask = distances < threshold
-    points_on_plane = np.asarray(point_cloud.points)[mask]
-    
-    points_on_plane_cloud = o3d.geometry.PointCloud()
-    points_on_plane_cloud.points = o3d.utility.Vector3dVector(points_on_plane)
-    
-    return points_on_plane_cloud
-
-def filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=0.050, point_threshold=0.005):
-    """Filter sections that are not close to each other and project the ones close to the same plane using mesh1 as the base."""
-
-    filtered_sections_mesh1 = []
-    filtered_sections_mesh2 = []
-    
-    #vis_elements = []
-
-    for sec1, sec2 in zip(LE_sections_mesh1, LE_sections_mesh2):
-        # Calculate the mean point of each section
-        mean_sec1 = np.mean(sec1, axis=0)
-        mean_sec2 = np.mean(sec2, axis=0)
-        
-        # Calculate distance between the sections
-        distance = np.linalg.norm(mean_sec1 - mean_sec2)
-        
-        # Filter sections based on the threshold
-        if distance <= threshold:
-            filtered_sec1 = []
-            filtered_sec2 = []
-            
-            # Project sec2 points onto the plane of sec1
-            sec1_plane_normal = calculate_plane_normal(sec1)
-            projected_sec2 = project_points_to_plane(sec2, mean_sec1, sec1_plane_normal)
-            
-            tree_sec1 = cKDTree(sec1)
-            tree_sec2 = cKDTree(projected_sec2)
-
-            for point in sec1:
-                dist, _ = tree_sec2.query(point)
-                if dist <= point_threshold:
-                    filtered_sec1.append(point)
-
-            for point in projected_sec2:
-                dist, _ = tree_sec1.query(point)
-                if dist <= point_threshold:
-                    filtered_sec2.append(point)
-
-            filtered_sections_mesh1.append(np.array(filtered_sec1))
-            filtered_sections_mesh2.append(np.array(filtered_sec2))
-    
-    return filtered_sections_mesh1, filtered_sections_mesh2
-
-
-def calculate_plane_normal(section_points):
-    """Calculate the normal vector of the plane defined by the section points."""
-    pca = PCA(n_components=3)
-    pca.fit(section_points)
-    normal = pca.components_[-1]  # The normal is the last component
-    return normal
-
-
-def project_points_to_plane(points, plane_point, plane_normal):
-    """Project points onto a plane defined by a point and a normal."""
-    plane_normal = plane_normal / np.linalg.norm(plane_normal)
-    projected_points = points - np.dot(points - plane_point, plane_normal)[:, None] * plane_normal
-    return projected_points
-
-
-def rotate_point_cloud(pcd, theta_x=0, theta_y=0, theta_z=0):
-    """
-    Rotate the point cloud using independent rotation angles for each axis.
-    
-    Parameters:
-    - pcd: The input Open3D point cloud object.
-    - theta_x: Rotation angle around the X-axis (in radians).
-    - theta_y: Rotation angle around the Y-axis (in radians).
-    - theta_z: Rotation angle around the Z-axis (in radians).
-    
-    Returns:
-    - rotated_pcd: A new point cloud with the combined rotation applied.
-    """
-    # Rotation matrix for X-axis
-    R_x = np.array([
-        [1, 0, 0],
-        [0, np.cos(theta_x), -np.sin(theta_x)],
-        [0, np.sin(theta_x), np.cos(theta_x)]
-    ])
-    
-    # Rotation matrix for Y-axis
-    R_y = np.array([
-        [np.cos(theta_y), 0, np.sin(theta_y)],
-        [0, 1, 0],
-        [-np.sin(theta_y), 0, np.cos(theta_y)]
-    ])
-    
-    # Rotation matrix for Z-axis
-    R_z = np.array([
-        [np.cos(theta_z), -np.sin(theta_z), 0],
-        [np.sin(theta_z), np.cos(theta_z), 0],
-        [0, 0, 1]
-    ])
-    
-    # Combined rotation: First rotate around X, then Y, then Z
-    R = R_z @ R_y @ R_x
-    
-    # Apply the combined rotation to the point cloud
-    rotated_pcd = pcd.rotate(R, center=(0, 0, 0))  # Rotate around the origin
-    
-    return rotated_pcd
+import os
+import pandas as pd
 
 
 # # # #  Turbine Section based on major axis  # # # #
@@ -151,7 +35,8 @@ def slice_point_cloud_along_axis(pcd, flow_axis = 'y', num_sections = 10, thresh
     flow_max = np.max(points[:, flow_idx])
 
     # Generate equally spaced slicing planes along the flow axis
-    section_positions = np.linspace(flow_min, flow_max, num_sections)
+    section_length = (flow_max - flow_min) / num_sections
+    section_positions = np.linspace(flow_min+(section_length/2), flow_max-(section_length/2), num_sections)
 
     sections = []
 
@@ -173,18 +58,17 @@ def slice_point_cloud_along_axis(pcd, flow_axis = 'y', num_sections = 10, thresh
         if section_points.shape[0] > 0:
             sections.append(section_points)
 
-    return sections
+    return sections, section_length
 
 
 def detect_leading_edge_by_maxima(sections, leading_edge_axis='z'):
     """
     Find the leading edge point based on a section of the point cloud.
     The leading edge is assumed to be the point with the largest value along the specified axis.
-    
+
     Parameters:
     - sections: List of 2D arrays, where each array is a section of the point cloud (Nx3).
     - leading_edge_axis: The axis to search for the maxima ('x', 'y', or 'z').
-    
     Returns:
     - le_points: List of leading edge point coordinates (x, y, z) for each section.
     """
@@ -223,7 +107,7 @@ def find_closest_leading_edge_point(section_points, leading_edge_points):
             closest_point = point
     return closest_point
 
-def adjust_center_and_le_for_symmetry(section_points, leading_edge_point, initial_center, vis_elements, tolerance=1e-7, max_iterations=5000):
+def adjust_center_and_le_for_symmetry(section_points, leading_edge_point, initial_center, vis_elements, tolerance=1e-6, max_iterations=5000):
     
     """Iteratively adjust the center and LE vector for symmetry."""
     
@@ -316,19 +200,45 @@ def adjust_center_and_le_for_symmetry(section_points, leading_edge_point, initia
     return center, LE_vector, vis_elements
 
 
-def recontour_LE_sections(LE_sections, leading_edge_points, initial_target_parabolic_parameter=1000, tolerance=1e-0, max_iterations=1000):
+def recontour_LE_sections(LE_sections, leading_edge_points, target_parabolic_parameter=3):
     """Recontour leading edge sections, ensuring the recontoured radius does not exceed the original distance from the adjusted center."""
     
     recontoured_sections = []
+    area_removals = []
     vis_elements = []
 
-    for section_points in LE_sections:
+    for section_index, section_points in enumerate(LE_sections):
         # 1. Determine the leading edge vector and center
         leading_edge_point = find_closest_leading_edge_point(section_points, leading_edge_points)
         initial_center = np.mean(section_points, axis=0)
-        adjusted_center, LE_vector, vis_elements = adjust_center_and_le_for_symmetry(section_points, leading_edge_point, initial_center, vis_elements, tolerance)
-        shift_factor = 0.2
-        shift_down_length = shift_factor * np.linalg.norm(leading_edge_point - adjusted_center) 
+        adjusted_center, LE_vector, vis_elements = adjust_center_and_le_for_symmetry(section_points, leading_edge_point, initial_center, vis_elements)
+        shift_factor = 0.6
+        peak_distance = np.linalg.norm(leading_edge_point - adjusted_center) 
+        shift_down_length = shift_factor * peak_distance
+
+        # Calculate the maximum perpendicular distance at the center
+        max_perpendicular_distance_left = 0
+        max_perpendicular_distance_right = 0
+
+        for point in section_points:
+            direction = point - adjusted_center
+            if np.dot(direction, LE_vector) > 0:
+                projection_onto_LE = np.dot(direction, LE_vector) * LE_vector
+                perpendicular_direction = direction - projection_onto_LE
+                perpendicular_distance = np.linalg.norm(perpendicular_direction)
+
+                # Determine if the point is on the left or right side of the LE vector
+                # Cross product of LE_vector and perpendicular_direction gives a vector whose sign indicates left or right
+                cross_product = np.cross(LE_vector, perpendicular_direction)
+                
+                if cross_product[2] > 0:  # Assume the z-component determines left/right
+                    max_perpendicular_distance_left = max(max_perpendicular_distance_left, perpendicular_distance)
+                else:
+                    max_perpendicular_distance_right = max(max_perpendicular_distance_right, perpendicular_distance)
+
+        #use the lower value between the two
+        max_perpendicular_distance = min(max_perpendicular_distance_left, max_perpendicular_distance_right)
+
 
         recontoured_section = []
         for point in section_points:
@@ -343,33 +253,31 @@ def recontour_LE_sections(LE_sections, leading_edge_points, initial_target_parab
                 # Perpendicular direction to the leading edge vector
                 projection_onto_LE = np.dot(direction, LE_vector) * LE_vector
                 perpendicular_direction = direction - projection_onto_LE
+                distance_along_LE = np.linalg.norm(projection_onto_LE)
+    
                 original_distance = np.linalg.norm(perpendicular_direction)
                 perpendicular_distance_squared = np.dot(perpendicular_direction, perpendicular_direction)
 
-                # 3. Create new points following the parabola algorithm without exceeding original distance
-                target_radius = initial_target_parabolic_parameter
-                arc_distance = -target_radius * perpendicular_distance_squared
-                print(arc_distance)
+                scaling_factor = (1 - (distance_along_LE / peak_distance) ** 2)
+                perpendicular_distance_new = target_parabolic_parameter * scaling_factor * max_perpendicular_distance
+
                 # Normalize the perpendicular direction
-                perpendicular_direction /= np.linalg.norm(perpendicular_direction)
+                if np.linalg.norm(perpendicular_direction) > 0:
+                    perpendicular_direction /= np.linalg.norm(perpendicular_direction)
 
                 
-                # Adjust the target radius if the new point exceeds the original distance
-                iteration_count = 0
-                while np.abs(arc_distance) > np.abs(original_distance):
-                    target_radius -= tolerance  # Reduce the radius to fit within the original distance
-                    arc_distance = -target_radius * perpendicular_distance_squared
+                perp_shift = 0.05 * max_perpendicular_distance
 
-                    iteration_count += 1
-                    if iteration_count >= max_iterations:
-                        print(f"Reached maximum iterations: {max_iterations}, breaking loop.")
-                        break  # Stop if maximum iterations is reached
+                # If the new perpendicular distance exceeds the original distance, adjust inward
+                if np.abs(perpendicular_distance_new) > np.abs(original_distance):
+                    # Move the point inward by reducing the perpendicular distance
+                    perpendicular_distance_new = original_distance - perp_shift
                 
                 # Create the new recontoured point
-                new_point = adjusted_center + perpendicular_direction * arc_distance + projection_onto_LE
+                new_point = adjusted_center + perpendicular_distance_new * perpendicular_direction + projection_onto_LE
                 new_point -= LE_vector * shift_down_length
 
-                
+                '''
                 # 4. Remove old points above the new point profile
                 # If the original point is higher than the new point (along the LE vector), discard it
                 old_point_distance = np.linalg.norm(point - adjusted_center)
@@ -378,29 +286,170 @@ def recontour_LE_sections(LE_sections, leading_edge_points, initial_target_parab
                     recontoured_section.append(new_point)
                 else:
                     recontoured_section.append(point)
+                '''
+                recontoured_section.append(new_point)
             else:
                 # Leave points below the adjusted center unchanged
                 recontoured_section.append(point)
         
         recontoured_sections.append(recontoured_section)
+
+        # 3. Calculate the area between the original section and the recontoured section
+        # Assuming LE_vector is the direction to project onto
+        area, vis_elements = calculate_area_between_points(np.array(recontoured_section), np.array(section_points), LE_vector, adjusted_center, vis_elements)
+        area_removals.append({
+            'section_index': section_index,
+            'areas': area  # This is already a dictionary with sub_section_idx_1 and sub_section_idx_2
+        })
     
     # Visualization (original sections and recontoured sections)
     for section_id, section_points in enumerate(LE_sections):
         
+        '''
         original_points = o3d.geometry.PointCloud()
         original_points.points = o3d.utility.Vector3dVector(section_points)
         original_points.paint_uniform_color([1, 0, 0])  # Red for original points
         vis_elements.append(original_points)
-
+        
         recontoured_points = o3d.geometry.PointCloud()
         recontoured_points.points = o3d.utility.Vector3dVector(recontoured_sections[section_id])
         recontoured_points.paint_uniform_color([0, 1, 0])  # Green for recontoured points
         vis_elements.append(recontoured_points)
+        '''
 
     o3d.visualization.draw_geometries(vis_elements, window_name="Original and Recontoured Sections", width=800, height=600)
 
 
-    return recontoured_sections
+    return recontoured_sections, np.array(area_removals)
+
+
+def separate_sides(points, LE_vector, adjusted_center, vis_elements):
+    """Separate points into left and right sides based on the dot product with a perpendicular vector."""
+    # Find a vector perpendicular to the leading edge vector (LE_vector)
+    arbitrary_vector = np.array([1, 0, 0]) if np.abs(LE_vector[0]) < 0.9 else np.array([0, 1, 0])
+    perp_vector = np.cross(LE_vector, arbitrary_vector)
+    perp_vector /= np.linalg.norm(perp_vector)  # Normalize the perpendicular vector
+
+    # Compute dot product of points with the perpendicular vector
+    directions = points - adjusted_center
+    dot_products = np.dot(directions, perp_vector)
+
+     # Use a tolerance to avoid missing points near the boundary (where dot_product ≈ 0)
+    left_side = points[dot_products <= 0]
+    right_side = points[dot_products >= 0]
+
+    # Create point cloud for the left side and color it red
+    left_side_cloud = o3d.geometry.PointCloud()
+    left_side_cloud.points = o3d.utility.Vector3dVector(left_side)
+    left_side_cloud.paint_uniform_color([1, 0, 0])  # Red for left side
+    vis_elements.append(left_side_cloud)
+
+    # Create point cloud for the right side and color it blue
+    right_side_cloud = o3d.geometry.PointCloud()
+    right_side_cloud.points = o3d.utility.Vector3dVector(right_side)
+    right_side_cloud.paint_uniform_color([0, 0, 1])  # Blue for right side
+    vis_elements.append(right_side_cloud)
+
+    return left_side, right_side, vis_elements
+
+def compute_area_between_points(recontoured_side, original_side, LE_vector, adjusted_center):
+    """Compute the area between corresponding points on the green and red side."""
+    center_projection = np.dot(adjusted_center, LE_vector)
+
+    # Project points onto the leading edge vector
+    recontour_point_proj = np.dot(recontoured_side, LE_vector)
+    original_point_proj = np.dot(original_side, LE_vector)
+    
+    # Filter points above the center (where projection > center projection)
+    recontoured_above = recontoured_side[recontour_point_proj > center_projection]
+    original_above = original_side[original_point_proj > center_projection]
+
+    # Ensure both sides have the same number of points
+    min_length = min(len(recontoured_above), len(original_above))
+    recontoured_above = recontoured_above[:min_length]  # Trim or handle boundary cases
+    original_above = original_above[:min_length]  # Trim or handle boundary cases
+
+    # Project the filtered points onto the leading edge vector again
+    recontour_point_proj = np.dot(recontoured_above, LE_vector)
+    original_point_proj = np.dot(original_above, LE_vector)
+
+     # Calculate the "distances" as the difference between corresponding points along the LE vector
+    distances = np.abs(recontour_point_proj - original_point_proj)
+    
+    # Calculate the "widths" (projection differences) along the perpendicular axis
+    perp_vector = np.cross(LE_vector, np.array([1, 0, 0]) if np.abs(LE_vector[0]) < 0.9 else np.array([0, 1, 0]))
+    perp_vector /= np.linalg.norm(perp_vector)  # Normalize the perpendicular vector
+
+    # Project points onto the perpendicular vector
+    recontour_point_perp_proj = np.dot(recontoured_above, perp_vector)
+    original_point_perp_proj = np.dot(original_above, perp_vector)
+
+    # Calculate the differences along the perpendicular axis (these are the widths for trapezoidal integration)
+    projection_diffs = np.abs(recontour_point_perp_proj - original_point_perp_proj)
+
+    # Apply the trapezoidal rule: sum of (distance_i + distance_(i+1)) * (width between the points) / 2
+    area = np.sum((distances[:-1] + distances[1:]) * projection_diffs[:-1] / 2.0)
+
+    return area
+
+def calculate_area_between_points(recontoured_points, original_points, LE_vector, adjusted_center, vis_elements):
+    """Calculate the total area between green and red points by separating into left and right sides."""
+    
+    # Separate the green and red points into left and right sides
+    recontoured_left, recontoured_right, vis_elements = separate_sides(recontoured_points, LE_vector, adjusted_center, vis_elements)
+    original_left, original_right, vis_elements = separate_sides(original_points, LE_vector, adjusted_center, vis_elements)
+    
+    # Compute the area for the left side
+    area_left = compute_area_between_points(recontoured_left, original_left, LE_vector, adjusted_center)
+    
+    # Compute the area for the right side
+    area_right = compute_area_between_points(recontoured_right, original_right, LE_vector, adjusted_center)
+    
+    return {
+        'sub_section_idx_1': area_left,  # Left side (sub_section idx 1)
+        'sub_section_idx_2': area_right  # Right side (sub_section idx 2)
+    }, vis_elements
+
+
+def calculate_lost_volumes(area_removals, constant_width):
+    """
+    Multiply the areas by the constant width and print the lost volumes for each section.
+
+    Parameters:
+    - area_removals: List of dictionaries containing section index and areas for left and right sides.
+    - constant_width: The constant width to multiply with the area values.
+    """
+    lost_volumes = []
+
+    for entry in area_removals:
+        section_index = entry['section_index']
+        areas = entry['areas']
+
+        # Calculate the volumes for left (sub_section_idx_1) and right (sub_section_idx_2)
+        volume_left = areas['sub_section_idx_1'] * constant_width
+        volume_right = areas['sub_section_idx_2'] * constant_width
+
+        # Append the volumes along with section and sub-section indices
+        lost_volumes.append({
+            'section_idx': section_index,
+            'sub_section_idx': 1,  # sub_section_idx_1 corresponds to 1
+            'lost_volume': volume_left
+        })
+        lost_volumes.append({
+            'section_idx': section_index,
+            'sub_section_idx': 2,  # sub_section_idx_2 corresponds to 2
+            'lost_volume': volume_right
+        })
+
+    for entry in lost_volumes:
+        section_idx = entry['section_idx']
+        sub_section_idx = entry['sub_section_idx']
+        volume = entry['lost_volume']
+        
+        print(f"Section {section_idx}, Sub-section {sub_section_idx}: Volume = {volume}")
+
+
+    return lost_volumes
 
 
 def main():
@@ -409,22 +458,14 @@ def main():
     mvis = MeshVisualizer()
 
     mstore.load_mesh(1)
-    mstore.load_mesh(2)
 
     if mstore.mesh1_pcl == None:
         mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=60000)
-    if mstore.mesh2_pcl == None:
-        mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=60000)
+
 
     scale_factor = 1.0
     thresholds = {
-        "plane_threshold": 0.0001 * scale_factor,
-        "curvature_threshold": 0.005,                   #manually input
         "project_tolerance": 0.0002 * scale_factor,
-        "point_threshold": 0.005 * scale_factor,
-        "vicinity_radius": 0.004 * scale_factor,
-        "min_distance": 0.004 * scale_factor,
-        "tolerance": 1e-8 * scale_factor,
     }
 
     theta_x = np.deg2rad(-15)  # degrees around X-axis
@@ -432,29 +473,33 @@ def main():
     theta_z = np.deg2rad(-12)  # degrees around Z-axis
 
     # Rotate the point cloud
-    mstore.mesh1_pcl = rotate_point_cloud(mstore.mesh1_pcl, theta_x, theta_y, theta_z)
-    mstore.mesh2_pcl = rotate_point_cloud(mstore.mesh2_pcl, theta_x, theta_y, theta_z)
+    mstore.mesh1_pcl = mstore.rotate_point_cloud(mstore.mesh1_pcl, theta_x, theta_y, theta_z)
     
     #Create LE sections
-    LE_sections_mesh1 = slice_point_cloud_along_axis(mstore.mesh1_pcl, flow_axis = 'y', num_sections = 10, threshold=thresholds["project_tolerance"])
-    LE_sections_mesh2 = slice_point_cloud_along_axis(mstore.mesh2_pcl, flow_axis = 'y', num_sections = 10, threshold=thresholds["project_tolerance"])
+    LE_sections_mesh1, LE_sections_mesh1_length = slice_point_cloud_along_axis(mstore.mesh1_pcl, flow_axis = 'y', num_sections = 10, threshold=thresholds["project_tolerance"])
 
-    mvis.visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
+    mvis.visualize_pcl_overlay(mstore.mesh1_pcl, LE_sections_mesh1)
 
     mstore.mesh1_LE_points = detect_leading_edge_by_maxima(LE_sections_mesh1, leading_edge_axis='x')
-    mstore.mesh2_LE_points = detect_leading_edge_by_maxima(LE_sections_mesh2, leading_edge_axis='x')
-
 
     mvis.visualize_sections_with_leading_edges(LE_sections_mesh1, mstore.mesh1_LE_points)
 
-    '''
-    LE_sections_mesh1, LE_sections_mesh2 = filter_and_project_sections(LE_sections_mesh1, LE_sections_mesh2, threshold=thresholds["project_tolerance"], point_threshold=thresholds["point_threshold"])
-    mvis.visualize_pcl_overlay(LE_sections_mesh1, LE_sections_mesh2)
-    '''
+    recontoured_LE_sections, area_removals = recontour_LE_sections(LE_sections_mesh1, mstore.mesh1_LE_points, target_parabolic_parameter=3)
 
-    recontoured_LE_sections = recontour_LE_sections(LE_sections_mesh1, mstore.mesh1_LE_points, initial_target_parabolic_parameter=1000)
+    mstore.lost_volumes = calculate_lost_volumes(area_removals, LE_sections_mesh1_length)
 
-    
+
+    # Create model
+    # TO DO: Store model somewhere so we dont need to train it everytime we run this code
+    create_grind_model(mstore)
+
+    # Predict RPM and Force
+    # TO DO: think about how should we do this. What are the inputs (lost volume, curvature, or more?)
+    #                                           What are the outputs (RPM, Force, Feed rate, or fix some variables?)
+
+    # Fixed feed rate
+    feed_rate = 20
+    predict_grind_param(mstore, feed_rate)
 
 
 if __name__ == "__main__":

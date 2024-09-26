@@ -64,3 +64,48 @@ def evaluate_model(model, X_test, y_test):
     plt.tight_layout()
     plt.show()
     '''
+
+def create_grind_model(mstore):
+    """
+    Train the model if it does not exist yet in the MeshProcessor object.
+    :param mstore: MeshProcessor object that holds the model and data.
+    """
+    if mstore.model is None:
+        # Load the pre-trained model dataset
+        file_path = '/workspaces/BrightSkyRepoLinux/mesh_sample/grinding_material_removal.csv'
+        data = load_data(file_path)
+        target_columns = ['RPM', 'Force']
+
+        # Preprocess the data (train the model using the CSV data, for example)
+        X_train, X_test, y_train, y_test, scaler = preprocess_data(data, target_columns)
+
+        # Train the SVR model
+        mstore.model = train_svr(X_train, y_train)
+        mstore.scaler = scaler  # Save the scaler for scaling inputs later
+
+        # Optionally, evaluate the model on the test set
+        evaluate_model(mstore.model, X_test, y_test)
+    else:
+        print("Using previously trained model.")
+
+
+def predict_grind_param(mstore, feed_rate):
+    # Prepare inputs for the SVR model (lost volume + feed rate for each section)
+    input_data = pd.DataFrame({
+        'Feed_Rate': [feed_rate] * len(mstore.lost_volumes),
+        'Lost_Volume': [param['lost_volume'] for param in mstore.lost_volumes]
+    })
+
+    # Scale the input_data using the stored scaler
+    input_data_scaled = mstore.scaler.transform(input_data)
+
+    # Predict the RPM and Force using the lost volume and feed rate
+    predictions = mstore.model.predict(input_data_scaled)
+
+    # Output predictions with segment and subsection indices
+    predicted_rpm_force = pd.DataFrame(predictions, columns=['RPM', 'Force'])
+    predicted_rpm_force['Segment'] = [param['section_idx'] for param in mstore.lost_volumes]
+    predicted_rpm_force['Sub_Section'] = [param['sub_section_idx'] for param in mstore.lost_volumes]
+    
+    # Print results with correct segment and subsection designations
+    print(predicted_rpm_force[['Segment', 'Sub_Section', 'RPM', 'Force']])

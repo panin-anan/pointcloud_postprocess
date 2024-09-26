@@ -47,6 +47,32 @@ class MeshVisualizer:
     def visualize_mesh(self, mesh):
         o3d.visualization.draw_geometries(mesh, mesh_show_back_face=True)
 
+    def visualize_meshpcl_overlay(self, mesh, pcl):
+        vis_elements = []
+
+        # Convert to point cloud if necessary
+        pcl = self.convert_to_pointcloud(pcl)
+
+        mesh.paint_uniform_color([1, 0, 0])  # Red for the first point cloud
+        pcl.paint_uniform_color([0, 1, 0])  # Green for the second point cloud
+
+        # Initialize the visualizer
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(window_name="Mesh PCL Overlay", width=800, height=600)
+
+        # Add point clouds to the visualizer
+        vis.add_geometry(mesh)
+        vis.add_geometry(pcl)
+
+        # Access rendering options
+        render_option = vis.get_render_option()
+        render_option.point_size = 5.0  # Set point size for both clouds
+
+        # Run the visualizer
+        vis.run()
+        vis.destroy_window()
+
+
     def visualize_pcl_overlay(self, pcl_1, pcl_2):
         vis_elements = []
 

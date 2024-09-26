@@ -76,7 +76,7 @@ def predict_grind_param(mstore, feed_rate):
 
     # Output predictions with segment and subsection indices
     predicted_rpm_force = pd.DataFrame(predictions, columns=['RPM', 'Force'])
-    predicted_rpm_force['Segment'] = [param['segment_idx'] for param in mstore.grind_params]
+    predicted_rpm_force['Segment'] = [param['section_idx'] for param in mstore.grind_params]
     predicted_rpm_force['Sub_Section'] = [param['sub_section_idx'] for param in mstore.grind_params]
     
     # Print results with correct segment and subsection designations
@@ -99,76 +99,54 @@ def main():
         "tolerance": 1e-8 * scale_factor,
     }
 
-    # Specify the directory to save and load sections
-    section_directory = "mesh_sections"
-
-    # Check if sections exist, otherwise process, can change name, both at load and at save command to record more sections
-    worn_sections = load_sections("worn", directory=section_directory)
-    desired_sections = load_sections("desired", directory=section_directory)
 
 
     # TO DO: put this sectioning in a function/method
-
-    if worn_sections and desired_sections:
-        mstore.worn_sections = worn_sections
-        mstore.desired_sections = desired_sections
-        print("Loaded previously saved sections.")
-    else:
-        print("Processing and saving new sections.")
-        # Load meshes
-        mstore.load_mesh(1)
-        mstore.load_mesh(2)
-
-        # Sample points if loaded trimesh
-        if mstore.mesh1_pcl == None:
-            mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=100000)
-        if mstore.mesh2_pcl == None:
-            mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=100000)
-        
-        # Get Leading Edge points
-        mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
-        mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
-
-        # Segment point cloud (flow axis)
-        mstore.mesh1_segments = mstore.segment_turbine_pcd(mstore.mesh1_pcl, mstore.mesh1_LE_points)
-        mstore.mesh2_segments = mstore.segment_turbine_pcd(mstore.mesh2_pcl, mstore.mesh2_LE_points)
-
-        # Section point cloud (cross section axis)
-        mstore.mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.5)
-        mstore.mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.5, use_bounds=bounds)
-
-        mstore.grind_params = []
-
-        for segment_idx, (worn_segment, desired_segment) in enumerate(zip(mstore.mesh1_sections, mstore.mesh2_sections), 1):
-            worn_sub_sections = worn_segment['sub_sections']
-            desired_sub_sections = desired_segment['sub_sections']
-
-            for sub_section_idx, (worn_sub_section, desired_sub_section) in enumerate(zip(worn_sub_sections, desired_sub_sections), 1):
-                # Convert each sub-section point cloud to mesh using Ball-Pivoting Algorithm (BPA) or alpha shapes
-                worn_section_mesh = mstore.create_mesh_from_pcl(worn_sub_section)
-                desired_section_mesh = mstore.create_mesh_from_pcl(desired_sub_section)
-
-                lost_volume = mstore.calculate_lost_volume(worn_section_mesh, desired_section_mesh, worn_sub_section, desired_sub_section)
-                mstore.lost_volumes.append(lost_volume)
-                mstore.worn_mesh_sections.append(worn_section_mesh)
-                mstore.desired_mesh_sections.append(desired_section_mesh)
-
-                '''
-                # Save the converted meshes to disk (in case need repetitive testing)
-                worn_mesh_filename = os.path.join(mesh_directory, f"worn_segment_{segment_idx}_subsection_{sub_section_idx}.ply")
-                desired_mesh_filename = os.path.join(mesh_directory, f"desired_segment_{segment_idx}_subsection_{sub_section_idx}.ply")
-
-                o3d.io.write_triangle_mesh(worn_mesh_filename, worn_mesh)
-                o3d.io.write_triangle_mesh(desired_mesh_filename, desired_mesh)
-                '''
-                
-                mstore.grind_params.append({
-                    'segment_idx': segment_idx,
-                    'sub_section_idx': sub_section_idx,
-                    'lost_volume': lost_volume
-                })
-                
-                print(f"Lost Volume for Segment {segment_idx}, Sub-section {sub_section_idx}: {lost_volume:.2f} mm^3")
+    # Load meshes
+    mstore.load_mesh(1)
+    mstore.load_mesh(2)
+    # Sample points if loaded trimesh
+    if mstore.mesh1_pcl == None:
+        mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=100000)
+    if mstore.mesh2_pcl == None:
+        mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=100000)
+    
+    # Get Leading Edge points
+    mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
+    mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
+    # Segment point cloud (flow axis)
+    mstore.mesh1_segments = mstore.segment_turbine_pcd(mstore.mesh1_pcl, mstore.mesh1_LE_points)
+    mstore.mesh2_segments = mstore.segment_turbine_pcd(mstore.mesh2_pcl, mstore.mesh2_LE_points)
+    # Section point cloud (cross section axis)
+    mstore.mesh1_sections, bounds = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh1_segments, mstore.mesh1_LE_points, num_sections=3, mid_ratio=0.5)
+    mstore.mesh2_sections, _ = mstore.section_leading_edge_on_segmentedPCL(mstore.mesh2_segments, mstore.mesh2_LE_points, num_sections=3, mid_ratio=0.5, use_bounds=bounds)
+    mstore.grind_params = []
+    for segment_idx, (worn_segment, desired_segment) in enumerate(zip(mstore.mesh1_sections, mstore.mesh2_sections), 1):
+        worn_sub_sections = worn_segment['sub_sections']
+        desired_sub_sections = desired_segment['sub_sections']
+        for sub_section_idx, (worn_sub_section, desired_sub_section) in enumerate(zip(worn_sub_sections, desired_sub_sections), 1):
+            # Convert each sub-section point cloud to mesh using Ball-Pivoting Algorithm (BPA) or alpha shapes
+            worn_section_mesh = mstore.create_mesh_from_pcl(worn_sub_section)
+            desired_section_mesh = mstore.create_mesh_from_pcl(desired_sub_section)
+            lost_volume = mstore.calculate_lost_volume(worn_section_mesh, desired_section_mesh, worn_sub_section, desired_sub_section)
+            mstore.lost_volumes.append(lost_volume)
+            mstore.worn_mesh_sections.append(worn_section_mesh)
+            mstore.desired_mesh_sections.append(desired_section_mesh)
+            '''
+            # Save the converted meshes to disk (in case need repetitive testing)
+            worn_mesh_filename = os.path.join(mesh_directory, f"worn_segment_{segment_idx}_subsection_{sub_section_idx}.ply")
+            desired_mesh_filename = os.path.join(mesh_directory, f"desired_segment_{segment_idx}_subsection_{sub_section_idx}.ply")
+            o3d.io.write_triangle_mesh(worn_mesh_filename, worn_mesh)
+            o3d.io.write_triangle_mesh(desired_mesh_filename, desired_mesh)
+            '''
+            
+            mstore.grind_params.append({
+                'segment_idx': segment_idx,
+                'sub_section_idx': sub_section_idx,
+                'lost_volume': lost_volume
+            })
+            
+            print(f"Lost Volume for Segment {segment_idx}, Sub-section {sub_section_idx}: {lost_volume:.2f} mm^3")
         
 
 
