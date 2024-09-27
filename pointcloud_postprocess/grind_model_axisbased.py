@@ -60,6 +60,27 @@ def slice_point_cloud_along_axis(pcd, flow_axis = 'y', num_sections = 10, thresh
 
     return sections, section_length
 
+def slice_point_cloud_along_leading_edge(point_cloud, leading_edge_points, num_sections=10, threshold=0.0003):
+    """Slice the point cloud into sections using leading edge points."""
+    vis_element = []
+    sections = []
+    
+    for i in range(len(leading_edge_points) - 1):
+        start_point = leading_edge_points[i]
+        end_point = leading_edge_points[i + 1]
+        for j in range(num_sections):
+            t = j / num_sections
+            section_point = (1 - t) * start_point + t * end_point
+            flow_axis = end_point - start_point
+            flow_axis /= np.linalg.norm(flow_axis)
+            points_on_plane = extract_points_on_plane(point_cloud, section_point, flow_axis, threshold)
+            if len(points_on_plane.points) > 0:
+                points_on_plane.paint_uniform_color([0, 0, 0])
+                vis_element.append(points_on_plane)
+                sections.append(np.asarray(points_on_plane.points))
+
+    #o3d.visualization.draw_geometries(vis_element)
+    return sections
 
 def detect_leading_edge_by_maxima(sections, leading_edge_axis='z'):
     """
