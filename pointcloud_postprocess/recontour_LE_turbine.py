@@ -415,7 +415,7 @@ def main():
     if mstore.mesh2_pcl == None:
         mstore.mesh2_pcl = mstore.mesh2.sample_points_poisson_disk(number_of_points=60000)
 
-    scale_factor = 1.0
+    scale_factor = 5000
     thresholds = {
         "plane_threshold": 0.0001 * scale_factor,
         "curvature_threshold": 0.005,                   #manually input
@@ -429,15 +429,15 @@ def main():
     curvature_array = mstore.estimate_curvature(mstore.mesh1_pcl)
 
     #Tuning parameter for testing CAD blade: curvature_threshold=(0.005, 0.04), k_neighbors=30, vicinity_radius=20, min_distance=40
-    mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
-    mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
+    mstore.mesh1_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh1_pcl, curvature_threshold=(0.005, 0.04), vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
+    mstore.mesh2_LE_points = mstore.detect_leading_edge_by_curvature(mstore.mesh2_pcl, curvature_threshold=(0.005, 0.04), vicinity_radius=thresholds["vicinity_radius"], min_distance=thresholds["min_distance"])
     
-
+    '''
     tck, u = fit_spline_to_leading_edge(mstore.mesh1_LE_points)
     # Sample points along the spline for visualization
     spline_points = sample_spline(tck, num_points=500)
 
-    '''
+    
     mvis.visualize_spline_with_pcl(mstore.mesh1_pcl, spline_points)
     
     # Visualize the leading edge points and the spline
