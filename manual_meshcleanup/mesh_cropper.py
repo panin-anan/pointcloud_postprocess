@@ -1,6 +1,5 @@
 #For Cropping Point Cloud
 from mesh_processor import MeshProcessor
-from grindparam_predictor import load_data, preprocess_data, train_svr, evaluate_model
 
 import os
 import open3d as o3d
@@ -21,7 +20,7 @@ vis = o3d.visualization.VisualizerWithEditing(-1, False, "")
 vis.create_window()
 
 # Add the point cloud to the visualizer
-vis.add_geometry(mstore.mesh1)
+vis.add_geometry(mstore.mesh1_pcl)
 # Run the visualizer, allowing the user to draw polygons and crop the point cloud
 vis.run() 
 vis.destroy_window()

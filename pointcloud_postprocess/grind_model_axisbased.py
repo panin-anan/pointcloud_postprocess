@@ -19,8 +19,6 @@ import pandas as pd
 
 def slice_point_cloud_along_axis(pcd, flow_axis = 'y', num_sections = 10, threshold=0.0002):
     """Slice the point cloud into sections using leading edge points."""
-    vis_element = []
-
     points = np.asarray(pcd.points)
 
     # Map the flow axis to the appropriate index in the point array
@@ -60,9 +58,22 @@ def slice_point_cloud_along_axis(pcd, flow_axis = 'y', num_sections = 10, thresh
 
     return sections, section_length
 
-def slice_point_cloud_along_leading_edge(point_cloud, leading_edge_points, num_sections=10, threshold=0.0003):
+
+#TO DO: Implement along leading edge sectioning instead of using major axes. (Can use below two functions)
+
+def extract_points_on_plane(point_cloud, plane_point, plane_normal, threshold=0.0004):
+    """Extract points lying near a specified plane."""
+    distances = point_to_plane_distance(np.asarray(point_cloud.points), plane_point, plane_normal)
+    mask = distances < threshold
+    points_on_plane = np.asarray(point_cloud.points)[mask]
+    
+    points_on_plane_cloud = o3d.geometry.PointCloud()
+    points_on_plane_cloud.points = o3d.utility.Vector3dVector(points_on_plane)
+    
+    return points_on_plane_cloud
+
+def slice_point_cloud_along_leading_edge(point_cloud, leading_edge_points, num_sections=10, threshold=0.0004):
     """Slice the point cloud into sections using leading edge points."""
-    vis_element = []
     sections = []
     
     for i in range(len(leading_edge_points) - 1):
