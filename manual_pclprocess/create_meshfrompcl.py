@@ -66,13 +66,11 @@ o3d.visualization.draw_geometries([mesh_before_trimesh_alpha], window_name="Alph
 o3d.visualization.draw_geometries([mesh_before_trimesh_alpha_cropped], window_name="Cropped Alpha Shape Mesh", width=800, height=600)
 '''
 
-def joggle_points(pcd, scale=1e-6):
-    points = np.asarray(pcd.points)
-    jitter = np.random.normal(scale=scale, size=points.shape)
-    pcd.points = o3d.utility.Vector3dVector(points + jitter)
-
 def create_mesh_from_point_cloud(pcd):
     joggle_points(pcd) 
+    points = np.asarray(pcd.points)
+    jitter = np.random.normal(scale=1e-6, size=points.shape)
+    pcd.points = o3d.utility.Vector3dVector(points + jitter)
     pcd.estimate_normals()
 
     pcd.orient_normals_consistent_tangent_plane(30)

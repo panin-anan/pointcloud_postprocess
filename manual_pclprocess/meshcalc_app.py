@@ -10,7 +10,7 @@ import sys
 
 # Import functions from mesh_calculations.py
 from mesh_calculations import (
-    calculate_lost_volume,
+    calculate_lost_volume_from_changedpcl,
     filter_unchangedpointson_mesh,
     calculate_lost_thickness,
     compute_average_x,
@@ -20,6 +20,7 @@ from mesh_calculations import (
     calculate_point_density
 )
 
+from create_meshfrompcl import create_mesh_from_point_cloud
 
 def signal_handler(sig, frame):
     print("Interrupt received, shutting down...")
@@ -103,7 +104,10 @@ class MeshApp:
 
     def show_overlay(self):
         if self.mesh1 and self.mesh2:
-            overlay_meshes = [self.mesh1, self.mesh2]
+            mesh1_colored = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color for mesh1
+            mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color for mesh2
+            
+            overlay_meshes = [mesh1_colored, mesh2_colored]
             vis_overlay = o3d.visualization.Visualizer()
             vis_overlay.create_window(window_name="Overlay Meshes", width=800, height=600, left=50, top=50)
             for mesh in overlay_meshes:
@@ -136,10 +140,9 @@ class MeshApp:
 
     def probe_points_mesh1(self):
         if self.mesh1:
-            mesh_1_pcl = self.mesh1.sample_points_uniformly(number_of_points=100000)
-            picked_ids = self.pick_points(mesh_1_pcl)
+            picked_ids = self.pick_points(self.mesh1)
             if picked_ids:
-                points = np.asarray(mesh_1_pcl.points)
+                points = np.asarray(self.mesh1.points)
                 print("Picked point coordinates:")
                 for i in picked_ids:
                     print(f"Point {i}: [{points[i][0]:.6f}, {points[i][1]:.6f}, {points[i][2]:.6f}]")
@@ -148,10 +151,9 @@ class MeshApp:
 
     def probe_points_mesh2(self):
         if self.mesh2:
-            mesh_2_pcl = self.mesh2.sample_points_uniformly(number_of_points=100000)
-            picked_ids = self.pick_points(mesh_2_pcl)
+            picked_ids = self.pick_points(self.mesh2)
             if picked_ids:
-                points = np.asarray(mesh_2_pcl.points)
+                points = np.asarray(self.mesh2.points)
                 print("Picked point coordinates:")
                 for i in picked_ids:
                     print(f"Point {i}: [{points[i][0]:.6f}, {points[i][1]:.6f}, {points[i][2]:.6f}]")
@@ -179,25 +181,12 @@ class MeshApp:
         return picked_points
 
     def compute_all(self):
-        # Postprocess data
-        num_points_before, point_density_before, resolution_before = calculate_point_density(self.mesh1)
-        num_points_after, point_density_after, resolution_after = calculate_point_density(self.mesh2)
-        print(f"First Mesh:")
-        print(f"num of points: {num_points_before}")
-        print(f"point density: {point_density_before}")
-        print(f"resolution: {resolution_before}")
-
-        print(f"Second Mesh:")
-        print(f"num of points: {num_points_after}")
-        print(f"point density: {point_density_after}")
-        print(f"resolution: {resolution_after}")
-   
         # Filter Mesh
         self.progress_label.config(text="Progress: Filtering points...")
         self.root.update_idletasks()
-        self.unchanged_mesh, self.changed_mesh = filter_unchangedpointson_mesh(self.mesh1, self.mesh2, threshold=0.05)
+        self.changed_mesh = filter_unchangedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0005, neighbor_threshold=6)
 
-
+        '''
         # Calculate the lost volume, thickness, and change in curvature
         lost_volume = calculate_lost_volume(self.mesh1, self.changed_mesh)
         lost_thickness = calculate_lost_thickness(self.mesh1, self.changed_mesh, lost_volume)
@@ -211,15 +200,8 @@ class MeshApp:
         print(f"Estimated volume of lost material: {lost_volume} mm^3")
         print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")
         print(f"Estimated grinded thickness avg method: {avg_diff} mm")
-        #print(f"Mean change in curvature: {change_in_curvature}")
-
-        #self.progress_label.config(text="Progress: Calculating curvature...")
-        #self.root.update_idletasks()
-        #mean_curvature_before, overall_curvature_before = calculate_curvature(self.mesh1)
-        #mean_curvature_after, overall_curvature_after = calculate_curvature(self.changed_mesh)
-
-        #print(f"Estimated curvature before: {overall_curvature_before}")
-        #print(f"Estimated curvature after: {overall_curvature_after}")
+        '''
+        print(f"Done computing")
 
 
 if __name__ == "__main__":

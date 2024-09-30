@@ -108,56 +108,50 @@ def create_mesh_from_point_cloud(pcd):
     return mesh
 
 
-def calculate_lost_volume(mesh_before, mesh_after):
-    mesh_before.compute_vertex_normals()
-    mesh_after.compute_vertex_normals()
-
-    pcd_before = mesh_before.sample_points_poisson_disk(number_of_points=30000)
-    pcd_after = mesh_after.sample_points_poisson_disk(number_of_points=30000)
-
-    distances = pcd_after.compute_point_cloud_distance(pcd_before)
-    distances = np.asarray(distances)
-
-    reference_area = mesh_after.get_surface_area()
-    volume_lost = np.mean(distances) * reference_area
+def calculate_lost_volume_from_changedpcl(mesh_missing, fixed_thickness):
+    reference_area = mesh_missing.get_surface_area()
+    volume_lost = fixed_thickness * reference_area
 
     return volume_lost
 
 
-def filter_unchangedpointson_mesh(mesh_before, mesh_after, threshold=0.1):
-    points_before = np.asarray(mesh_before.vertices)
-    points_after = np.asarray(mesh_after.vertices)
+def filter_unchangedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighbor_threshold=5):
+    # Convert points from Open3D mesh to numpy arrays
+    points_before = np.asarray(mesh_before.points)
+    points_after = np.asarray(mesh_after.points)
 
-    kdtree_before = cKDTree(points_before)
-    distances, indices = kdtree_before.query(points_after)
-
-    unchanged_indices = np.where(distances < threshold)[0]
-    changed_indices = np.where(distances >= threshold)[0]
-
-    unchanged_vertices = points_after[unchanged_indices]
-    changed_vertices = points_after[changed_indices]
-
-    if len(unchanged_vertices) >= 3:
-        delaunay_unchanged = Delaunay(unchanged_vertices[:, :2])
-        unchanged_triangles = delaunay_unchanged.simplices
-    else:
-        unchanged_triangles = []
-
-    if len(changed_vertices) >= 3:
-        delaunay_changed = Delaunay(changed_vertices[:, :2])
-        changed_triangles = delaunay_changed.simplices
-    else:
-        changed_triangles = []
-
-    mesh_unchanged = o3d.geometry.TriangleMesh()
-    mesh_unchanged.vertices = o3d.utility.Vector3dVector(unchanged_vertices)
-    mesh_unchanged.triangles = o3d.utility.Vector3iVector(unchanged_triangles)
-
-    mesh_changed = o3d.geometry.TriangleMesh()
-    mesh_changed.vertices = o3d.utility.Vector3dVector(changed_vertices)
-    mesh_changed.triangles = o3d.utility.Vector3iVector(changed_triangles)
-
-    return mesh_unchanged, mesh_changed
+    # Create KDTree for the points in mesh_after
+    kdtree_after = cKDTree(points_after)
+    
+    # Query KDTree to find distances and indices of nearest neighbors in mesh_after for points in mesh_before
+    distances, indices = kdtree_after.query(points_before)
+    
+    # Filter points in mesh_before that are not within the threshold distance in mesh_after
+    missing_indices = np.where(distances >= threshold)[0]
+    missing_vertices = points_before[missing_indices]
+    
+    # Create a new point cloud with points that are missing in mesh_after
+    mesh_missing = o3d.geometry.PointCloud()
+    mesh_missing.points = o3d.utility.Vector3dVector(missing_vertices)
+    
+    # Now, filter out points in mesh_missing that have fewer than 20 neighbors within the threshold distance
+    missing_vertices_np = np.asarray(mesh_missing.points)
+    
+    # Create KDTree for the points in mesh_missing
+    kdtree_missing = cKDTree(missing_vertices_np)
+    
+    # Query neighbors within the threshold distance for each point in mesh_missing
+    neighbor_counts = kdtree_missing.query_ball_point(missing_vertices_np, r=threshold)
+    
+    # Only keep points that have at least 20 neighbors in their vicinity
+    valid_indices = [i for i, neighbors in enumerate(neighbor_counts) if len(neighbors) >= neighbor_threshold]
+    valid_vertices = missing_vertices_np[valid_indices]
+    
+    # Create a new point cloud with the filtered points
+    filtered_mesh_missing = o3d.geometry.PointCloud()
+    filtered_mesh_missing.points = o3d.utility.Vector3dVector(valid_vertices)
+    
+    return filtered_mesh_missing
 
 
 def calculate_lost_thickness(mesh_before, changed_mesh_after, lost_volume):
