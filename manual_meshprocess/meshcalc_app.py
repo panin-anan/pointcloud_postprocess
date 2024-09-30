@@ -120,6 +120,12 @@ class MeshApp:
         else:
             messagebox.showwarning("Warning", "Mesh not available")
 
+    def show_changed(self):
+        if self.changed_mesh:
+            self.create_visualizer(self.changed_mesh, "Changed Vertices", 800, 600, 900, 700)
+        else:
+            messagebox.showwarning("Warning", "Changed mesh not available")
+
     def create_visualizer(self, geometry, window_name, width, height, left, top):
         vis = o3d.visualization.VisualizerWithEditing(-1, False, "")
         vis.create_window(window_name=window_name, width=width, height=height, left=left, top=top)
