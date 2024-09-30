@@ -4,48 +4,6 @@ import tkinter as tk
 from tkinter import filedialog
 from scipy.spatial import cKDTree, Delaunay
 
-# Define flat plate mesh for testing
-
-def create_flat_plate_mesh_before(length, width, thickness, divisions_length, divisions_width, filename="mesh.ply"):
-    # Generate vertices in a grid
-    vertices = []
-    for i in range(divisions_length + 1):
-        for j in range(divisions_width + 1):
-            x = (length / divisions_length) * i
-            y = (width / divisions_width) * j
-            vertices.append([x, y, thickness])
-
-    vertices = np.array(vertices)
-
-    #triangles
-    triangles = []
-    for i in range(divisions_length):
-        for j in range(divisions_width):
-            v0 = i * (divisions_width + 1) + j
-            v1 = v0 + 1
-            v2 = v0 + (divisions_width + 1)
-            v3 = v2 + 1
-            triangles.append([v0, v1, v2])
-            triangles.append([v1, v3, v2])
-
-    triangles = np.array(triangles)
-
-
-    # Create a TriangleMesh object
-    mesh = o3d.geometry.TriangleMesh()
-    mesh.vertices = o3d.utility.Vector3dVector(vertices)
-    mesh.triangles = o3d.utility.Vector3iVector(triangles)
-
-    # Optionally compute normals for better visualization
-    mesh.compute_vertex_normals()
-
-    # Save the mesh to a file
-    o3d.io.write_triangle_mesh(filename, mesh)
-    
-    print(f"Mesh saved to {filename}")
-
-    return mesh
-
 
 # Initialize tkinter
 root = tk.Tk()

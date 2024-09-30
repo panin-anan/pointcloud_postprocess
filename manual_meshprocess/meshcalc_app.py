@@ -53,8 +53,6 @@ class MeshApp:
     def create_widgets(self):
         tk.Button(self.root, text="Load Mesh 1", command=self.load_mesh1).pack(pady=5)
         tk.Button(self.root, text="Load Mesh 2", command=self.load_mesh2).pack(pady=5)
-        tk.Button(self.root, text="Visualize Mesh 1", command=self.show_mesh1).pack(pady=5)
-        tk.Button(self.root, text="Visualize Mesh 2", command=self.show_mesh2).pack(pady=5)
         tk.Button(self.root, text="Overlay Mesh", command=self.show_overlay).pack(pady=5)
         tk.Button(self.root, text="Probe Points Mesh 1", command=self.probe_points_mesh1).pack(pady=5)
         tk.Button(self.root, text="Probe Points Mesh 2", command=self.probe_points_mesh2).pack(pady=5)
@@ -102,32 +100,6 @@ class MeshApp:
 
     def load_mesh2(self):
         self.load_mesh(mesh_number=2)
-
-
-    def show_mesh1(self):
-        if self.mesh1:
-            self.create_visualizer(self.mesh1, "Mesh 1", 800, 600, 50, 700)
-        else:
-            messagebox.showwarning("Warning", "Mesh not available")
-
-    def show_mesh2(self):
-        if self.mesh2:
-            self.create_visualizer(self.mesh2, "Mesh 2", 800, 600, 900, 700)
-        else:
-            messagebox.showwarning("Warning", "Mesh not available")
-
-    def show_unchanged(self):
-        if self.unchanged_mesh:
-            self.create_visualizer(self.unchanged_mesh, "Unchanged Vertices", 800, 600, 50, 700)
-        else:
-            messagebox.showwarning("Warning", "Unchanged mesh not available")
-
-    def show_changed(self):
-        if self.changed_mesh:
-            self.create_visualizer(self.changed_mesh, "Changed Vertices", 800, 600, 900, 700)
-        else:
-            messagebox.showwarning("Warning", "Changed mesh not available")
-
 
     def show_overlay(self):
         if self.mesh1 and self.mesh2:
