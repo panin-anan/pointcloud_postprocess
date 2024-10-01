@@ -6,8 +6,6 @@ import copy
 from scipy.spatial import cKDTree, Delaunay
 import signal
 import sys
-
-
 # Import functions from mesh_calculations.py
 from mesh_calculations import (
     calculate_lost_volume_from_changedpcl,
@@ -17,10 +15,11 @@ from mesh_calculations import (
     compute_average_y,
     compute_average_z,
     calculate_curvature,
-    calculate_point_density
+    calculate_point_density,
+    create_mesh_from_point_cloud
 )
 
-from create_meshfrompcl import create_mesh_from_point_cloud
+
 
 def signal_handler(sig, frame):
     print("Interrupt received, shutting down...")
@@ -47,7 +46,7 @@ class MeshApp:
         self.mesh2 = None
         self.unchanged_mesh = None
         self.changed_mesh = None
-
+        self.changed_mesh_surf = None
         # Create UI buttons and labels
         self.create_widgets()
 
@@ -184,23 +183,38 @@ class MeshApp:
         # Filter Mesh
         self.progress_label.config(text="Progress: Filtering points...")
         self.root.update_idletasks()
-        self.changed_mesh = filter_unchangedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0005, neighbor_threshold=6)
+        self.changed_mesh = filter_unchangedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=8)
 
-        '''
-        # Calculate the lost volume, thickness, and change in curvature
-        lost_volume = calculate_lost_volume(self.mesh1, self.changed_mesh)
-        lost_thickness = calculate_lost_thickness(self.mesh1, self.changed_mesh, lost_volume)
+        mesh1_colored = self.changed_mesh.paint_uniform_color([1, 0, 0])  # Red color
+        mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
+            
+        overlay_meshes = [mesh1_colored, mesh2_colored]
+        vis_overlay = o3d.visualization.Visualizer()
+        vis_overlay.create_window(window_name="Overlay Meshes", width=800, height=600, left=50, top=50)
+        for mesh in overlay_meshes:
+            vis_overlay.add_geometry(mesh)
+        while True:
+            vis_overlay.poll_events()
+            vis_overlay.update_renderer()
+    
+            # Optionally, add a condition to break the loop, e.g., a key press or window close event
+            if not vis_overlay.poll_events():
+                break
+        vis_overlay.destroy_window()
 
-        avg_before = compute_average_z(self.mesh1)
-        avg_after = compute_average_z(self.changed_mesh)
-        avg_diff = np.abs(avg_before - avg_after)
+        self.changed_mesh_surf = create_mesh_from_point_cloud(self.changed_mesh) 
 
-        #change_in_curvature = calculate_change_in_curvature(self.mesh1, self.mesh2)
+        # Setup Open3D visualizer for the surface mesh
+        self.changed_mesh_surf.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
+        o3d.visualization.draw_geometries([self.changed_mesh_surf], window_name="Changed Mesh Surface", width=800, height=600)
+        fixed_thickness = 0.002 # in m
 
+        lost_volume = calculate_lost_volume_from_changedpcl(self.changed_mesh_surf, fixed_thickness)
+        
         print(f"Estimated volume of lost material: {lost_volume} mm^3")
-        print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")
-        print(f"Estimated grinded thickness avg method: {avg_diff} mm")
-        '''
+        #print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")
+        #print(f"Estimated grinded thickness avg method: {avg_diff} mm")
+
         print(f"Done computing")
 
 

@@ -67,7 +67,6 @@ o3d.visualization.draw_geometries([mesh_before_trimesh_alpha_cropped], window_na
 '''
 
 def create_mesh_from_point_cloud(pcd):
-    joggle_points(pcd) 
     points = np.asarray(pcd.points)
     jitter = np.random.normal(scale=1e-6, size=points.shape)
     pcd.points = o3d.utility.Vector3dVector(points + jitter)
@@ -77,7 +76,7 @@ def create_mesh_from_point_cloud(pcd):
 
     distances = pcd.compute_nearest_neighbor_distance()
     avg_dist = np.mean(distances)
-    radii = [0.1 * avg_dist, 0.4 * avg_dist, 0.7 * avg_dist, 1 * avg_dist, 1.5 * avg_dist, 2 * avg_dist, 3 * avg_dist] #can reduce to reduce computation
+    radii = [0.05 * avg_dist, 0.1 * avg_dist, 0.25 * avg_dist, 0.4 * avg_dist, 0.7 * avg_dist, 1 * avg_dist, 1.5 * avg_dist, 2 * avg_dist, 3 * avg_dist, 5*avg_dist] #can reduce to reduce computation
     r = o3d.utility.DoubleVector(radii)
     
     #ball pivoting

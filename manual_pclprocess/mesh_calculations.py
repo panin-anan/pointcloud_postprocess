@@ -114,6 +114,23 @@ def calculate_lost_volume_from_changedpcl(mesh_missing, fixed_thickness):
 
     return volume_lost
 
+def create_mesh_from_point_cloud(pcd):
+    points = np.asarray(pcd.points)
+    jitter = np.random.normal(scale=1e-6, size=points.shape)
+    pcd.points = o3d.utility.Vector3dVector(points + jitter)
+    pcd.estimate_normals()
+
+    pcd.orient_normals_consistent_tangent_plane(30)
+
+    distances = pcd.compute_nearest_neighbor_distance()
+    avg_dist = np.mean(distances)
+    radii = [0.05 * avg_dist, 0.1 * avg_dist, 0.25 * avg_dist, 0.4 * avg_dist, 0.7 * avg_dist, 1 * avg_dist, 1.5 * avg_dist, 2 * avg_dist, 3 * avg_dist, 5*avg_dist] #can reduce to reduce computation
+    r = o3d.utility.DoubleVector(radii)
+    
+    #ball pivoting
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, r)
+
+    return mesh
 
 def filter_unchangedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighbor_threshold=5):
     # Convert points from Open3D mesh to numpy arrays
