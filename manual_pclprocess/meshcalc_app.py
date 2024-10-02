@@ -246,7 +246,7 @@ class MeshApp:
 
         fixed_thickness = 0.002 # in m
 
-        lost_volume, lost_depth = calculate_lost_volume_from_changedpcl(self.changed_mesh_surf, fixed_thickness)
+        lost_volume = calculate_lost_volume_from_changedpcl(self.changed_mesh_surf, fixed_thickness)
         
         print(f"Estimated volume of lost material: {lost_volume} m^3")
         #print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")
