@@ -6,17 +6,21 @@ import copy
 from scipy.spatial import cKDTree, Delaunay
 import signal
 import sys
+import threading
+import time
+
 # Import functions from mesh_calculations.py
 from mesh_calculations import (
     calculate_lost_volume_from_changedpcl,
-    filter_unchangedpointson_mesh,
+    filter_changedpointson_mesh,
     calculate_lost_thickness,
     compute_average_x,
     compute_average_y,
     compute_average_z,
     calculate_curvature,
     calculate_point_density,
-    create_mesh_from_point_cloud
+    create_mesh_from_point_cloud,
+    create_mesh_from_clusters
 )
 
 
@@ -179,39 +183,72 @@ class MeshApp:
         
         return picked_points
 
+    def visualize_meshes(self, overlay_meshes, window_name="Open3D"):
+        vis_overlay = o3d.visualization.Visualizer()
+        vis_overlay.create_window(window_name, width=800, height=600, left=50, top=50)
+        for mesh in overlay_meshes:
+            vis_overlay.add_geometry(mesh)
+
+
+
+        while True:
+            vis_overlay.poll_events()
+            vis_overlay.update_renderer()
+
+            # Add any conditions for closing or breaking the loop here if necessary
+            if not vis_overlay.poll_events():
+                break
+
+        vis_overlay.destroy_window()
+
+
     def compute_all(self):
         # Filter Mesh
         self.progress_label.config(text="Progress: Filtering points...")
         self.root.update_idletasks()
-        self.changed_mesh = filter_unchangedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=8)
+        self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=8)
 
         mesh1_colored = self.changed_mesh.paint_uniform_color([1, 0, 0])  # Red color
         mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
             
         overlay_meshes = [mesh1_colored, mesh2_colored]
-        vis_overlay = o3d.visualization.Visualizer()
-        vis_overlay.create_window(window_name="Overlay Meshes", width=800, height=600, left=50, top=50)
-        for mesh in overlay_meshes:
-            vis_overlay.add_geometry(mesh)
-        while True:
-            vis_overlay.poll_events()
-            vis_overlay.update_renderer()
-    
-            # Optionally, add a condition to break the loop, e.g., a key press or window close event
-            if not vis_overlay.poll_events():
-                break
-        vis_overlay.destroy_window()
-
-        self.changed_mesh_surf = create_mesh_from_point_cloud(self.changed_mesh) 
+        self.visualize_meshes(overlay_meshes,"window 1")
+        
+        self.changed_mesh_surf = create_mesh_from_clusters(self.changed_mesh, eps=0.005, min_points=30) 
 
         # Setup Open3D visualizer for the surface mesh
         self.changed_mesh_surf.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
-        o3d.visualization.draw_geometries([self.changed_mesh_surf], window_name="Changed Mesh Surface", width=800, height=600)
+
+        def visualize_changed_mesh(changed_mesh, window_name="Open3D"):
+            changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
+            vis_2 = o3d.visualization.Visualizer()
+            vis_2.create_window(window_name, width=800, height=600, left=50, top=50)
+            vis_2.add_geometry(changed_mesh)
+            opt = vis_2.get_render_option()
+
+            # Enable wireframe mode (edges will be visible)
+            opt.mesh_show_wireframe = True  # This enables the wireframe rendering
+            opt.line_width = 1.0       # Adjust the line width of the triangle edges
+            opt.mesh_show_back_face = True
+
+            while True:
+                vis_2.poll_events()
+                vis_2.update_renderer()
+                # Add any conditions for closing or breaking the loop here if necessary
+                if not vis_2.poll_events():
+                    break
+            vis_2.destroy_window()
+
+        
+        visualization_thread2 = threading.Thread(target=visualize_changed_mesh, args=(self.changed_mesh_surf,"window 2"))
+        visualization_thread2.start()
+        
+
         fixed_thickness = 0.002 # in m
 
-        lost_volume = calculate_lost_volume_from_changedpcl(self.changed_mesh_surf, fixed_thickness)
+        lost_volume, lost_depth = calculate_lost_volume_from_changedpcl(self.changed_mesh_surf, fixed_thickness)
         
-        print(f"Estimated volume of lost material: {lost_volume} mm^3")
+        print(f"Estimated volume of lost material: {lost_volume} m^3")
         #print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")
         #print(f"Estimated grinded thickness avg method: {avg_diff} mm")
 

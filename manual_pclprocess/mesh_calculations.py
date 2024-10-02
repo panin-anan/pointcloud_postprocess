@@ -5,6 +5,8 @@ import open3d as o3d
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from scipy.spatial import cKDTree, Delaunay
+import time
+from sklearn.decomposition import PCA
 
 def load_mesh(mesh_number):
     path = filedialog.askopenfilename(title=f"Select the mesh file for Mesh {mesh_number}",
@@ -91,22 +93,6 @@ def joggle_points(pcd, scale=1e-6):
     jitter = np.random.normal(scale=scale, size=points.shape)
     pcd.points = o3d.utility.Vector3dVector(points + jitter)
 
-def create_mesh_from_point_cloud(pcd):
-    joggle_points(pcd) 
-    pcd.estimate_normals()
-
-    pcd.orient_normals_consistent_tangent_plane(30)
-
-    distances = pcd.compute_nearest_neighbor_distance()
-    avg_dist = np.mean(distances)
-    radii = [0.1 * avg_dist, 0.4 * avg_dist, 0.7 * avg_dist, 1 * avg_dist, 1.5 * avg_dist, 2 * avg_dist, 3 * avg_dist] #can reduce to reduce computation
-    r = o3d.utility.DoubleVector(radii)
-    
-    #ball pivoting
-    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, r)
-
-    return mesh
-
 
 def calculate_lost_volume_from_changedpcl(mesh_missing, fixed_thickness):
     reference_area = mesh_missing.get_surface_area()
@@ -124,15 +110,165 @@ def create_mesh_from_point_cloud(pcd):
 
     distances = pcd.compute_nearest_neighbor_distance()
     avg_dist = np.mean(distances)
-    radii = [0.05 * avg_dist, 0.1 * avg_dist, 0.25 * avg_dist, 0.4 * avg_dist, 0.7 * avg_dist, 1 * avg_dist, 1.5 * avg_dist, 2 * avg_dist, 3 * avg_dist, 5*avg_dist] #can reduce to reduce computation
-    r = o3d.utility.DoubleVector(radii)
-    
+
+    # Iteratively adjust radii until a suitable mesh is created
+    iteration = 0
+    max_iterations = 10
+    step = 1.2
+    alpha = 0.001  # Adjust this parameter for alpha shape detail
+    direction = "multiply"  # Start by multiplying alpha
+    previous_surface_area = 0
+
+    while iteration < max_iterations:
+        try:
+            # Try Alpha Shape for mesh creation with the current alpha value
+            #print(f'Attempting mesh creation with alpha: {alpha:.2g}')
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+
+            # Compute the surface area of the mesh
+            current_surface_area = mesh.get_surface_area()
+            #print(f"Current surface area: {current_surface_area}")
+
+            # Check if the surface area is below the threshold or has decreased
+            if current_surface_area > previous_surface_area:
+                # Surface area has increased, update previous_surface_area
+                previous_surface_area = current_surface_area
+
+            else:
+                # If surface area decreased or did not improve, switch the direction
+                if direction == "multiply":
+                    direction = "divide"
+                else:
+                    direction = "multiply"
+
+            # Update alpha based on the current direction
+            if direction == "multiply":
+                alpha *= step
+            else:
+                alpha /= step
+
+
+        except Exception as e:
+            print(f"Alpha shape failed on iteration {iteration} with error: {e}")
+
+        # Increment iteration counter
+        iteration += 1
+
+    print(f"Mesh created successfully with surface area {current_surface_area} and alpha {alpha:.2g}")
+
+    '''
     #ball pivoting
-    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, r)
+    current_factor = 1.0
+    initial_radii = [0.0001, 0.00025, 0.0005, 0.0075, 0.001] 
+
+    while iteration < max_iterations:
+        # Dynamically scale radii based on the current factor
+        radii = [r * current_factor for r in initial_radii]  # Scale all radii by the current factor
+        print(f'Attempting mesh creation with radii: {[f"{r:.2g}" for r in radii]}')
+        
+        # Convert radii to Open3D-compatible DoubleVector format
+        r = o3d.utility.DoubleVector(radii)
+        
+        try:
+            # Try ball pivoting for mesh creation
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, r)
+            current_vertices = len(mesh.vertices)
+            print(f"Mesh created with {current_vertices} vertices.")
+            
+            # Check if the mesh has enough triangles/vertices to be considered "good"
+            if current_vertices > vertice_quality_threshold:
+                print(f"Mesh created successfully with {current_vertices} vertices.")
+                return mesh  # Return the successfully created mesh
+
+            # Check if the number of vertices decreased from the previous iteration
+            if iteration > 0 and current_vertices < previous_vertices:
+                # If the number of vertices decreases, switch direction (multiply -> divide or divide -> multiply)
+                if direction == "multiply":
+                    direction = "divide"
+                else:
+                    direction = "multiply"
+
+            # Update current factor based on the current direction
+            if direction == "multiply":
+                current_factor *= step
+            else:
+                current_factor /= step
+
+            # Store the number of vertices for the next iteration comparison
+            previous_vertices = current_vertices
+
+        except Exception as e:
+            print(f"Ball pivoting failed on iteration {iteration} with error: {e}")
+
+        # Increment iteration counter
+        iteration += 1  
+    '''
 
     return mesh
 
-def filter_unchangedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighbor_threshold=5):
+def fit_plane_to_cluster_pca(cluster_pcd):
+    """Fit a plane to a cluster of points using PCA."""
+    points = np.asarray(cluster_pcd.points)
+
+    # Perform PCA
+    pca = PCA(n_components=3)
+    pca.fit(points)
+
+    # Get the normal to the plane (third principal component)
+    plane_normal = pca.components_[2]  # The normal to the plane (least variance direction)
+
+    # The centroid is the mean of the points
+    centroid = np.mean(points, axis=0)
+
+    return plane_normal, centroid
+
+def project_points_onto_plane(points, plane_normal, plane_point):
+    """Project points onto the plane defined by the normal and a point."""
+    vectors = points - plane_point  # Vector from point to plane_point
+    distances = np.dot(vectors, plane_normal)  # Project onto the normal
+    projected_points = points - np.outer(distances, plane_normal)  # Subtract projection along the normal
+    return projected_points
+
+
+def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=True):
+    # Step 1: Segment point cloud into clusters using DBSCAN
+    labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))
+    
+    # Number of clusters (label -1 indicates noise)
+    num_clusters = labels.max() + 1
+    print(f"PointCloud has {num_clusters} clusters")
+
+    # Step 2: Iterate over each cluster and create a mesh
+    meshes = []
+    for cluster_idx in range(num_clusters):
+        # Select points belonging to the current cluster
+        cluster_pcd = pcd.select_by_index(np.where(labels == cluster_idx)[0])
+
+        # Step 3: Apply mesh creation process for each cluster
+        if len(cluster_pcd.points) > 3:  # Ensure there are enough points
+            # Fit a plane to the cluster using PCA
+            plane_normal, plane_centroid = fit_plane_to_cluster_pca(cluster_pcd)
+
+            # Project the points onto the plane
+            points = np.asarray(cluster_pcd.points)
+            projected_points = project_points_onto_plane(points, plane_normal, plane_centroid)
+
+            # Create a new point cloud for the projected points
+            cluster_pcd.points = o3d.utility.Vector3dVector(projected_points)
+
+
+            mesh = create_mesh_from_point_cloud(cluster_pcd)
+            meshes.append(mesh)
+
+    # Step 4: Merge all the cluster meshes into one
+    combined_mesh = o3d.geometry.TriangleMesh()
+    for mesh in meshes:
+        combined_mesh += mesh
+
+    return combined_mesh
+
+
+def filter_changedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighbor_threshold=5):
     # Convert points from Open3D mesh to numpy arrays
     points_before = np.asarray(mesh_before.points)
     points_after = np.asarray(mesh_after.points)
