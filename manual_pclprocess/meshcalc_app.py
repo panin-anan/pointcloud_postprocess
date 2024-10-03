@@ -8,7 +8,7 @@ import signal
 import sys
 import threading
 import time
-from scipy.spatial import ConvexHull
+
 
 # Import functions from mesh_calculations.py
 from mesh_calculations import (
