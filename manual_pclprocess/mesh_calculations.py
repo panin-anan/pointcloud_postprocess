@@ -6,7 +6,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from scipy.spatial import cKDTree, Delaunay
 import time
+from scipy.spatial import ConvexHull
 from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
 def load_mesh(mesh_number):
     path = filedialog.askopenfilename(title=f"Select the mesh file for Mesh {mesh_number}",
@@ -103,22 +105,21 @@ def calculate_lost_volume_from_changedpcl(mesh_missing, fixed_thickness):
 def create_mesh_from_point_cloud(pcd):
     points = np.asarray(pcd.points)
     jitter = np.random.normal(scale=1e-6, size=points.shape)
-    pcd.points = o3d.utility.Vector3dVector(points + jitter)
+    pcd.points = o3d.utility.Vector3dVector(points + jitter) #add jitter if points coincide
+    print('estimating normals')
     pcd.estimate_normals()
-
     pcd.orient_normals_consistent_tangent_plane(30)
-
-    distances = pcd.compute_nearest_neighbor_distance()
-    avg_dist = np.mean(distances)
-
+    print('meshing')
+    
+    # Alpha Shape
     # Iteratively adjust radii until a suitable mesh is created
     iteration = 0
     max_iterations = 10
     step = 1.2
-    alpha = 0.001  # Adjust this parameter for alpha shape detail
+    alpha = 0.002  # Adjust this parameter for alpha shape detail
     direction = "multiply"  # Start by multiplying alpha
     previous_surface_area = 0
-
+    '''
     while iteration < max_iterations:
         try:
             # Try Alpha Shape for mesh creation with the current alpha value
@@ -153,13 +154,21 @@ def create_mesh_from_point_cloud(pcd):
 
         # Increment iteration counter
         iteration += 1
-
+    '''
+    
+    #uncomment this part if dont want iterative mesh
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+    current_surface_area = mesh.get_surface_area()
     print(f"Mesh created successfully with surface area {current_surface_area} and alpha {alpha:.2g}")
-
+    
     '''
     #ball pivoting
     current_factor = 1.0
-    initial_radii = [0.0001, 0.00025, 0.0005, 0.0075, 0.001] 
+    #distances = pcd.compute_nearest_neighbor_distance()
+    #avg_dist = np.mean(distances)
+    initial_radii = [0.0001, 0.00025, 0.0005, 0.0075, 0.001, 0.002] 
+    radii = [r * current_factor for r in initial_radii]
+    r = o3d.utility.DoubleVector(radii)
 
     while iteration < max_iterations:
         # Dynamically scale radii based on the current factor
@@ -204,6 +213,8 @@ def create_mesh_from_point_cloud(pcd):
         iteration += 1  
     '''
 
+    #mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, r)
+
     return mesh
 
 def fit_plane_to_pcd_pca(pcd):
@@ -222,22 +233,6 @@ def fit_plane_to_pcd_pca(pcd):
 
         return plane_normal, centroid
 
-def fit_plane_to_cluster_pca(cluster_pcd):
-    """Fit a plane to a cluster of points using PCA."""
-    points = np.asarray(cluster_pcd.points)
-
-    # Perform PCA
-    pca = PCA(n_components=3)
-    pca.fit(points)
-
-    # Get the normal to the plane (third principal component)
-    plane_normal = pca.components_[2]  # The normal to the plane (least variance direction)
-
-    # The centroid is the mean of the points
-    centroid = np.mean(points, axis=0)
-
-    return plane_normal, centroid
-
 def project_points_onto_plane(points, plane_normal, plane_point):
     """Project points onto the plane defined by the normal and a point."""
     vectors = points - plane_point  # Vector from point to plane_point
@@ -245,7 +240,7 @@ def project_points_onto_plane(points, plane_normal, plane_point):
     projected_points = points - np.outer(distances, plane_normal)  # Subtract projection along the normal
     return projected_points
 
-def filter_points_by_plane(point_cloud, distance_threshold=0.001):
+def filter_project_points_by_plane(point_cloud, distance_threshold=0.001):
     # Fit a plane to the point cloud using RANSAC
     plane_model, inliers = point_cloud.segment_plane(distance_threshold=distance_threshold,
                                                      ransac_n=3,
@@ -255,11 +250,22 @@ def filter_points_by_plane(point_cloud, distance_threshold=0.001):
     # Select points that are close to the plane (within the threshold)
     inlier_cloud = point_cloud.select_by_index(inliers)
     
-    # Visualize the filtered point cloud (points on the big plate)
-    inlier_cloud.paint_uniform_color([0, 1, 0])  # Color filtered points in green
-    o3d.visualization.draw_geometries([inlier_cloud])
+    plane_normal, plane_centroid = fit_plane_to_pcd_pca(inlier_cloud)
+    points = np.asarray(inlier_cloud.points)
+    projected_points = project_points_onto_plane(points, plane_normal, plane_centroid)
 
-    return inlier_cloud
+    # Create a new point cloud with the projected points
+    projected_pcd = o3d.geometry.PointCloud()
+    projected_pcd.points = o3d.utility.Vector3dVector(projected_points)
+    projected_pcd.paint_uniform_color([1, 0, 0])  # Color projected points in red
+    
+    # Color the inlier points (on the original RANSAC plane) in green
+    inlier_cloud.paint_uniform_color([0, 1, 0])  # Color inlier points in green
+
+    # Visualize both the original point cloud, inliers, and projected points
+    #o3d.visualization.draw_geometries([projected_pcd])
+
+    return projected_pcd, plane_normal, plane_centroid
 
 
 def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=True):
@@ -299,7 +305,7 @@ def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=Tru
 
     return combined_mesh
 
-
+'''
 def filter_changedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighbor_threshold=5):
     # Convert points from Open3D mesh to numpy arrays
     points_before = np.asarray(mesh_before.points)
@@ -337,42 +343,47 @@ def filter_changedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighb
     filtered_mesh_missing.points = o3d.utility.Vector3dVector(valid_vertices)
     
     return filtered_mesh_missing
+'''
 
-def filter_changedpoints_boundbased(mesh_before, mesh_after):
-
-
-    # Compute the convex hull for mesh_after
-    hull_after, _ = mesh_after.compute_convex_hull()
-    hull_ls_after = o3d.geometry.LineSet.create_from_triangle_mesh(hull_after)
-    hull_ls_after.paint_uniform_color([0, 1, 0])  # Color the convex hull of mesh_after in green
+def filter_missing_points_by_yz(mesh_before, mesh_after, y_threshold=0.0003, z_threshold=0.0001):
+    # Convert points from Open3D mesh to numpy arrays
+    points_before = np.asarray(mesh_before.points)
+    points_after = np.asarray(mesh_after.points)
     
-    # Visualize the convex hull of mesh_after with the meshes
-    o3d.visualization.draw_geometries([mesh_after, hull_ls_after])
-
+    # Create a KDTree for the points in mesh_after
+    kdtree_after = cKDTree(points_after)
+    
+    # Query KDTree to find distances and indices of nearest neighbors in mesh_after for points in mesh_before
+    _, indices = kdtree_after.query(points_before)
+    
+    # Get the y and z coordinates from both meshes
+    y_before = points_before[:, 1]
+    z_before = points_before[:, 2]
+    y_after = points_after[indices, 1]  # Nearest neighbors' y-coordinates
+    z_after = points_after[indices, 2]  # Nearest neighbors' z-coordinates
+    
+    # Calculate the absolute differences in the y and z coordinates
+    y_diff = np.abs(y_before - y_after)
+    z_diff = np.abs(z_before - z_after)
+    
+    # Create a mask to find points in mesh_before where either the y or z axis difference
+    # with the corresponding point in mesh_after exceeds the respective thresholds
+    yz_diff_mask = (y_diff >= y_threshold) | (z_diff >= z_threshold)
+    
+    # Select the points from mesh_before where the y or z axis difference is larger than the threshold
+    missing_points = points_before[yz_diff_mask]
+    
+    # Create a new point cloud with the points that have significant y or z axis differences
+    mesh_missing = o3d.geometry.PointCloud()
+    mesh_missing.points = o3d.utility.Vector3dVector(missing_points)
+    
+    return mesh_missing
 
 def calculate_lost_thickness(mesh_before, changed_mesh_after, lost_volume):
     reference_area = changed_mesh_after.get_surface_area()
     lost_thickness = lost_volume / reference_area
     
     return lost_thickness
-
-
-def compute_average_x(mesh):
-    vertices = np.asarray(mesh.vertices)
-    average_x = np.mean(vertices[:, 0])
-    return average_x
-
-
-def compute_average_y(mesh):
-    vertices = np.asarray(mesh.vertices)
-    average_y = np.mean(vertices[:, 1])
-    return average_y
-
-
-def compute_average_z(mesh):
-    vertices = np.asarray(mesh.vertices)
-    average_z = np.mean(vertices[:, 2])
-    return average_z
 
 
 def calculate_curvature(mesh):
@@ -430,3 +441,77 @@ def calculate_point_density(mesh):
     avg_resolution = np.mean(distances)
 
     return num_points, point_density, avg_resolution
+
+def create_bbox_from_pcl(pcl):
+    # Step 1: Convert point cloud to numpy array
+    points = np.asarray(pcl.points)
+
+    # Step 2: Since data is planar, project points to a 2D plane (ignore one axis, e.g., X-axis)
+    yz_points = points[:, 1:3]  # Take Y and Z coordinates (planar in YZ plane)
+
+    # Step 3: Get the 2D Axis-Aligned Bounding Box (AABB) for the planar points (YZ plane)
+    min_bound = np.min(yz_points, axis=0)
+    max_bound = np.max(yz_points, axis=0)
+
+    # Step 4: Calculate width and height of the 2D bounding box (in YZ plane)
+    width = max_bound[0] - min_bound[0]  # Y-axis difference
+    height = max_bound[1] - min_bound[1]  # Z-axis difference
+
+    # Step 5: Calculate the 2D area (in YZ plane)
+    area = width * height
+
+    print(f"2D Bounding Box in YZ plane - Width: {width}, Height: {height}, Area: {area}")
+
+    return width, height, area
+
+def compute_convex_hull_area_yz(point_cloud):
+    # Step 1: Convert point cloud to numpy array
+    points = np.asarray(point_cloud.points)
+    
+    # Step 2: Project the points onto the YZ plane (ignoring X-axis)
+    yz_points = points[:, 1:3]  # Extract only the Y and Z coordinates
+    
+    # Step 3: Compute the convex hull using scipy's ConvexHull on the projected YZ points
+    hull_2d = ConvexHull(yz_points)
+    
+    # Step 4: The area of the convex hull (in the YZ plane)
+    area = hull_2d.area
+
+    print(f"Convex Hull Area in YZ Plane: {area}")
+    
+    return area, hull_2d
+
+
+def sort_largest_cluster(pcd, eps=0.005, min_points=30, remove_outliers=True):
+    # Step 1: Segment point cloud into clusters using DBSCAN
+    labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))
+    
+    # Number of clusters (label -1 indicates noise)
+    num_clusters = labels.max() + 1
+    print(f"PointCloud has {num_clusters} clusters")
+
+    colors = plt.get_cmap("tab20")(labels / (num_clusters if num_clusters > 0 else 1))
+    colors[labels == -1] = [0, 0, 0, 1]  # Color noise points black
+    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    o3d.visualization.draw_geometries([pcd])
+
+    # Step 2: Find the largest cluster
+    max_cluster_size = 0
+    largest_cluster_pcd = None
+
+    for cluster_idx in range(num_clusters):
+        # Get the indices of the points that belong to the current cluster
+        cluster_indices = np.where(labels == cluster_idx)[0]
+        
+        # If this cluster is the largest we've found, update the largest cluster info
+        if len(cluster_indices) > max_cluster_size:
+            max_cluster_size = len(cluster_indices)
+            largest_cluster_pcd = pcd.select_by_index(cluster_indices)
+
+    print(f"Largest cluster has {max_cluster_size} points")
+
+    # Optionally: Remove outliers (if remove_outliers is set to True)
+    #if remove_outliers and largest_cluster_pcd is not None:
+    #    largest_cluster_pcd, _ = largest_cluster_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+
+    return largest_cluster_pcd

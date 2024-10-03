@@ -8,23 +8,18 @@ import signal
 import sys
 import threading
 import time
+from scipy.spatial import ConvexHull
 
 # Import functions from mesh_calculations.py
 from mesh_calculations import (
     calculate_lost_volume_from_changedpcl,
-    filter_changedpointson_mesh,
-    calculate_lost_thickness,
-    compute_average_x,
-    compute_average_y,
-    compute_average_z,
-    calculate_curvature,
-    calculate_point_density,
     create_mesh_from_point_cloud,
-    create_mesh_from_clusters,
-    filter_changedpoints_boundbased,
-    fit_plane_to_pcd_pca,
+    filter_project_points_by_plane,
+    filter_missing_points_by_yz,
+    create_bbox_from_pcl,
+    compute_convex_hull_area_yz,
     project_points_onto_plane,
-    filter_points_by_plane
+    sort_largest_cluster
 )
 
 
@@ -52,6 +47,8 @@ class MeshApp:
         # Initialize meshes
         self.mesh1 = None
         self.mesh2 = None
+        self.mesh1_trimesh = None
+        self.mesh2_trimesh = None
         self.unchanged_mesh = None
         self.changed_mesh = None
         self.changed_mesh_surf = None
@@ -211,66 +208,39 @@ class MeshApp:
         self.progress_label.config(text="Progress: Filtering points...")
         self.root.update_idletasks()
 
-        #filter point by plane
-        filter_points_by_plane(self.mesh1, distance_threshold=0.001)
+        #filter point by plane and project onto it
+        self.mesh1, mesh1_plane_normal, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
+        self.mesh2, mesh2_plane_normal, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
 
-        # Project the points onto the plane
-        plane_normal, plane_centroid = fit_plane_to_pcd_pca(self.mesh1)
-        points = np.asarray(self.mesh1.points)
-        projected_points = project_points_onto_plane(points, plane_normal, plane_centroid)
+        
+        # Check alignment
+        cos_angle = np.dot(mesh1_plane_normal, mesh2_plane_normal) / (np.linalg.norm(mesh1_plane_normal) * np.linalg.norm(mesh2_plane_normal))
+        angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) * 180 / np.pi
+        if abs(angle) > 10:     #10 degree misalignment throw error
+            raise ValueError(f"Plane normals differ too much: {angle} degrees")
 
-        #visualize projected point
-        self.mesh1.paint_uniform_color([0, 0, 1])  # Color original points in blue
-
-        projected_pcd = o3d.geometry.PointCloud()
-        projected_pcd.points = o3d.utility.Vector3dVector(projected_points)
-        projected_pcd.paint_uniform_color([1, 0, 0])  # Color projected points in red
-
-        # Visualize both original and projected points
-        o3d.visualization.draw_geometries([self.mesh1, projected_pcd])
+        projected_points_mesh2 = project_points_onto_plane(np.asarray(self.mesh2.points), mesh1_plane_normal, mesh1_plane_centroid)
+        self.mesh2.points = o3d.utility.Vector3dVector(projected_points_mesh2)
 
 
-        self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
-
-        mesh1_colored = self.changed_mesh.paint_uniform_color([1, 0, 0])  # Red color
+        mesh1_colored = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color
         mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
-            
-        overlay_meshes = [mesh1_colored, mesh2_colored]
-        self.visualize_meshes(overlay_meshes,"window 1")
-        
-        self.changed_mesh_surf = create_mesh_from_clusters(self.changed_mesh, eps=0.005, min_points=30) 
 
-        # Setup Open3D visualizer for the surface mesh
-        self.changed_mesh_surf.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
+        #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
+        self.changed_mesh = filter_missing_points_by_yz(self.mesh1, self.mesh2, y_threshold=0.0002, z_threshold=0.0001)
+        # after filter difference
+        self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
+        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2])
+        # after sorting
+        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.0005, min_points=30, remove_outliers=True)
+        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2])
 
-        def visualize_changed_mesh(changed_mesh, window_name="Open3D"):
-            changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
-            vis_2 = o3d.visualization.Visualizer()
-            vis_2.create_window(window_name, width=800, height=600, left=50, top=50)
-            vis_2.add_geometry(changed_mesh)
-            opt = vis_2.get_render_option()
-
-            # Enable wireframe mode (edges will be visible)
-            opt.mesh_show_wireframe = True  # This enables the wireframe rendering
-            opt.line_width = 1.0       # Adjust the line width of the triangle edges
-            opt.mesh_show_back_face = True
-
-            while True:
-                vis_2.poll_events()
-                vis_2.update_renderer()
-                # Add any conditions for closing or breaking the loop here if necessary
-                if not vis_2.poll_events():
-                    break
-            vis_2.destroy_window()
-
-        
-        visualization_thread2 = threading.Thread(target=visualize_changed_mesh, args=(self.changed_mesh_surf,"window 2"))
-        visualization_thread2.start()
-        
+        #area from bounding box
+        width, height, area = create_bbox_from_pcl(self.changed_mesh)
 
         fixed_thickness = 0.002 # in m
 
-        lost_volume = calculate_lost_volume_from_changedpcl(self.changed_mesh_surf, fixed_thickness)
+        lost_volume = area * fixed_thickness
         
         print(f"Estimated volume of lost material: {lost_volume} m^3")
         #print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")
