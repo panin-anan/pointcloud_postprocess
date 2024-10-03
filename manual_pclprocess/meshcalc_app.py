@@ -20,7 +20,11 @@ from mesh_calculations import (
     calculate_curvature,
     calculate_point_density,
     create_mesh_from_point_cloud,
-    create_mesh_from_clusters
+    create_mesh_from_clusters,
+    filter_changedpoints_boundbased,
+    fit_plane_to_pcd_pca,
+    project_points_onto_plane,
+    filter_points_by_plane
 )
 
 
@@ -206,7 +210,27 @@ class MeshApp:
         # Filter Mesh
         self.progress_label.config(text="Progress: Filtering points...")
         self.root.update_idletasks()
-        self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=8)
+
+        #filter point by plane
+        filter_points_by_plane(self.mesh1, distance_threshold=0.001)
+
+        # Project the points onto the plane
+        plane_normal, plane_centroid = fit_plane_to_pcd_pca(self.mesh1)
+        points = np.asarray(self.mesh1.points)
+        projected_points = project_points_onto_plane(points, plane_normal, plane_centroid)
+
+        #visualize projected point
+        self.mesh1.paint_uniform_color([0, 0, 1])  # Color original points in blue
+
+        projected_pcd = o3d.geometry.PointCloud()
+        projected_pcd.points = o3d.utility.Vector3dVector(projected_points)
+        projected_pcd.paint_uniform_color([1, 0, 0])  # Color projected points in red
+
+        # Visualize both original and projected points
+        o3d.visualization.draw_geometries([self.mesh1, projected_pcd])
+
+
+        self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
 
         mesh1_colored = self.changed_mesh.paint_uniform_color([1, 0, 0])  # Red color
         mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color

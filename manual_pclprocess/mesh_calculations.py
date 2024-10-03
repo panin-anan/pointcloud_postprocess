@@ -206,6 +206,22 @@ def create_mesh_from_point_cloud(pcd):
 
     return mesh
 
+def fit_plane_to_pcd_pca(pcd):
+        """Fit a plane to a cluster of points using PCA."""
+        points = np.asarray(pcd.points)
+
+        # Perform PCA
+        pca = PCA(n_components=3)
+        pca.fit(points)
+
+        # Get the normal to the plane (third principal component)
+        plane_normal = pca.components_[2]  # The normal to the plane (least variance direction)
+
+        # The centroid is the mean of the points
+        centroid = np.mean(points, axis=0)
+
+        return plane_normal, centroid
+
 def fit_plane_to_cluster_pca(cluster_pcd):
     """Fit a plane to a cluster of points using PCA."""
     points = np.asarray(cluster_pcd.points)
@@ -228,6 +244,22 @@ def project_points_onto_plane(points, plane_normal, plane_point):
     distances = np.dot(vectors, plane_normal)  # Project onto the normal
     projected_points = points - np.outer(distances, plane_normal)  # Subtract projection along the normal
     return projected_points
+
+def filter_points_by_plane(point_cloud, distance_threshold=0.001):
+    # Fit a plane to the point cloud using RANSAC
+    plane_model, inliers = point_cloud.segment_plane(distance_threshold=distance_threshold,
+                                                     ransac_n=3,
+                                                     num_iterations=1000)
+    [a, b, c, d] = plane_model
+    
+    # Select points that are close to the plane (within the threshold)
+    inlier_cloud = point_cloud.select_by_index(inliers)
+    
+    # Visualize the filtered point cloud (points on the big plate)
+    inlier_cloud.paint_uniform_color([0, 1, 0])  # Color filtered points in green
+    o3d.visualization.draw_geometries([inlier_cloud])
+
+    return inlier_cloud
 
 
 def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=True):
@@ -305,6 +337,17 @@ def filter_changedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighb
     filtered_mesh_missing.points = o3d.utility.Vector3dVector(valid_vertices)
     
     return filtered_mesh_missing
+
+def filter_changedpoints_boundbased(mesh_before, mesh_after):
+
+
+    # Compute the convex hull for mesh_after
+    hull_after, _ = mesh_after.compute_convex_hull()
+    hull_ls_after = o3d.geometry.LineSet.create_from_triangle_mesh(hull_after)
+    hull_ls_after.paint_uniform_color([0, 1, 0])  # Color the convex hull of mesh_after in green
+    
+    # Visualize the convex hull of mesh_after with the meshes
+    o3d.visualization.draw_geometries([mesh_after, hull_ls_after])
 
 
 def calculate_lost_thickness(mesh_before, changed_mesh_after, lost_volume):
