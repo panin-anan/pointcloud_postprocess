@@ -228,10 +228,18 @@ def fit_plane_to_pcd_pca(pcd):
         # Get the normal to the plane (third principal component)
         plane_normal = pca.components_[2]  # The normal to the plane (least variance direction)
 
-        # The centroid is the mean of the points
-        centroid = np.mean(points, axis=0)
+        pca_basis = pca.components_  # Shape (3, 3)
 
-        return plane_normal, centroid
+        # The mean of the data gives the centroid
+        centroid = pca.mean_  # Shape (3,)
+
+        return pca_basis, centroid
+
+def transform_to_local_pca_coordinates(pcd, pca_basis, centroid):
+    points = np.asarray(pcd.points)
+    centered_points = points - centroid
+    local_points = centered_points @ pca_basis.T
+    return local_points
 
 def project_points_onto_plane(points, plane_normal, plane_point):
     """Project points onto the plane defined by the normal and a point."""
@@ -250,9 +258,9 @@ def filter_project_points_by_plane(point_cloud, distance_threshold=0.001):
     # Select points that are close to the plane (within the threshold)
     inlier_cloud = point_cloud.select_by_index(inliers)
     
-    plane_normal, plane_centroid = fit_plane_to_pcd_pca(inlier_cloud)
+    pca_basis, plane_centroid = fit_plane_to_pcd_pca(inlier_cloud)
     points = np.asarray(inlier_cloud.points)
-    projected_points = project_points_onto_plane(points, plane_normal, plane_centroid)
+    projected_points = project_points_onto_plane(points, pca_basis[2], plane_centroid)
 
     # Create a new point cloud with the projected points
     projected_pcd = o3d.geometry.PointCloud()
@@ -265,7 +273,7 @@ def filter_project_points_by_plane(point_cloud, distance_threshold=0.001):
     # Visualize both the original point cloud, inliers, and projected points
     #o3d.visualization.draw_geometries([projected_pcd])
 
-    return projected_pcd, plane_normal, plane_centroid
+    return projected_pcd, pca_basis, plane_centroid
 
 
 def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=True):
@@ -345,6 +353,7 @@ def filter_changedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighb
     return filtered_mesh_missing
 '''
 
+# TODO change from YZ to XY after changing to using local coordinates
 def filter_missing_points_by_yz(mesh_before, mesh_after, y_threshold=0.0003, z_threshold=0.0001):
     # Convert points from Open3D mesh to numpy arrays
     points_before = np.asarray(mesh_before.points)
@@ -461,8 +470,35 @@ def create_bbox_from_pcl(pcl):
     area = width * height
 
     print(f"2D Bounding Box in YZ plane - Width: {width}, Height: {height}, Area: {area}")
+    # Step 6: Create the bounding box as a LineSet for visualization
+    centroid = np.mean(points, axis=0)  # Get the centroid of the point cloud
 
-    return width, height, area
+    # Define the 3D bounding box corners (aligned to YZ plane)
+    bbox_corners = np.array([
+        [centroid[0], min_bound[0], min_bound[1]],  # Min YZ point
+        [centroid[0], max_bound[0], min_bound[1]],  # Max Y, Min Z
+        [centroid[0], max_bound[0], max_bound[1]],  # Max YZ
+        [centroid[0], min_bound[0], max_bound[1]],  # Min Y, Max Z
+    ])
+
+    # Define the lines connecting the corners
+    bbox_lines = [
+        [0, 1], [1, 2], [2, 3], [3, 0],  # Bounding box edges
+    ]
+
+    # Create the LineSet for the bounding box
+    bbox_lineset = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(bbox_corners),
+        lines=o3d.utility.Vector2iVector(bbox_lines)
+    )
+    bbox_lineset.paint_uniform_color([1, 0, 0])  # Red for the bounding box
+
+    # Step 7: Create a small sphere at the centroid for visualization
+    axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
+    axes.translate(centroid)
+
+
+    return width, height, area, bbox_lineset, axes
 
 def compute_convex_hull_area_yz(point_cloud):
     # Step 1: Convert point cloud to numpy array

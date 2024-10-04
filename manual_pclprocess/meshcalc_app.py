@@ -209,35 +209,79 @@ class MeshApp:
         self.root.update_idletasks()
 
         #filter point by plane and project onto it
-        self.mesh1, mesh1_plane_normal, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
-        self.mesh2, mesh2_plane_normal, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
+        self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
+        self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
 
-        
+
+
+        def rotate_points_to_yz_plane(pcl, plane_normal):
+            points = np.asarray(pcl.points)
+            # Normalize the plane normal
+            plane_normal = plane_normal / np.linalg.norm(plane_normal)
+
+            # Define the target normal (X-axis)
+            target_normal = np.array([1, 0, 0])
+
+            # Compute the axis of rotation (cross product between plane_normal and target_normal)
+            rotation_axis = np.cross(plane_normal, target_normal)
+            rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+
+            # Compute the angle between the plane normal and the X-axis (dot product)
+            angle = np.arccos(np.clip(np.dot(plane_normal, target_normal), -1.0, 1.0))
+
+            # Create the rotation matrix using the rotation axis and angle
+            K = np.array([[0, -rotation_axis[2], rotation_axis[1]],
+                          [rotation_axis[2], 0, -rotation_axis[0]],
+                          [-rotation_axis[1], rotation_axis[0], 0]])
+
+            R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
+
+            # Apply the rotation matrix to all points
+            rotated_points = points @ R.T
+
+            # Create a new point cloud with the rotated points
+            rotated_pcd = o3d.geometry.PointCloud()
+            rotated_pcd.points = o3d.utility.Vector3dVector(rotated_points)
+
+            return rotated_pcd
+
         # Check alignment
-        cos_angle = np.dot(mesh1_plane_normal, mesh2_plane_normal) / (np.linalg.norm(mesh1_plane_normal) * np.linalg.norm(mesh2_plane_normal))
+        cos_angle = np.dot(mesh1_pca_basis[2], mesh2_pca_basis[2]) / (np.linalg.norm(mesh1_pca_basis[2]) * np.linalg.norm(mesh2_pca_basis[2]))
         angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) * 180 / np.pi
         if abs(angle) > 10:     #10 degree misalignment throw error
             raise ValueError(f"Plane normals differ too much: {angle} degrees")
 
-        projected_points_mesh2 = project_points_onto_plane(np.asarray(self.mesh2.points), mesh1_plane_normal, mesh1_plane_centroid)
+        projected_points_mesh2 = project_points_onto_plane(np.asarray(self.mesh2.points), mesh1_pca_basis[2], mesh1_plane_centroid)
         self.mesh2.points = o3d.utility.Vector3dVector(projected_points_mesh2)
 
+        def transform_to_local_pca_coordinates(pcd, pca_basis, centroid):
+            points = np.asarray(pcd.points)
+            centered_points = points - centroid
+            local_points = centered_points @ pca_basis.T
+            local_pcl = o3d.geometry.PointCloud()
+            local_pcl.points = o3d.utility.Vector3dVector(local_points)
+            return local_pcl
+
+        #rotate points to yz plane
+        self.mesh1_local = transform_to_local_pca_coordinates(self.mesh1, mesh1_pca_basis, mesh1_plane_centroid )
+        self.mesh2_local = transform_to_local_pca_coordinates(self.mesh2, mesh1_pca_basis, mesh1_plane_centroid )
+  
 
         mesh1_colored = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color
         mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
 
         #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
-        self.changed_mesh = filter_missing_points_by_yz(self.mesh1, self.mesh2, y_threshold=0.0002, z_threshold=0.0001)
+        self.changed_mesh = filter_missing_points_by_yz(self.mesh1_local, self.mesh2_local, y_threshold=0.0002, z_threshold=0.0001)
         # after filter difference
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
-        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2])
+        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
         # after sorting
         self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.0005, min_points=30, remove_outliers=True)
-        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2])
+        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
 
         #area from bounding box
-        width, height, area = create_bbox_from_pcl(self.changed_mesh)
-
+        width, height, area, bbox_lineset, axes = create_bbox_from_pcl(self.changed_mesh)
+        o3d.visualization.draw_geometries([self.changed_mesh, bbox_lineset, axes])
         fixed_thickness = 0.002 # in m
 
         lost_volume = area * fixed_thickness
