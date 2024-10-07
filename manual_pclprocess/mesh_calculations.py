@@ -353,8 +353,7 @@ def filter_changedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighb
     return filtered_mesh_missing
 '''
 
-# TODO change from YZ to XY after changing to using local coordinates
-def filter_missing_points_by_yz(mesh_before, mesh_after, y_threshold=0.0003, z_threshold=0.0001):
+def filter_missing_points_by_xy(mesh_before, mesh_after, x_threshold=0.0003, y_threshold=0.0001):
     # Convert points from Open3D mesh to numpy arrays
     points_before = np.asarray(mesh_before.points)
     points_after = np.asarray(mesh_after.points)
@@ -366,21 +365,21 @@ def filter_missing_points_by_yz(mesh_before, mesh_after, y_threshold=0.0003, z_t
     _, indices = kdtree_after.query(points_before)
     
     # Get the y and z coordinates from both meshes
+    x_before = points_before[:, 0]
     y_before = points_before[:, 1]
-    z_before = points_before[:, 2]
-    y_after = points_after[indices, 1]  # Nearest neighbors' y-coordinates
-    z_after = points_after[indices, 2]  # Nearest neighbors' z-coordinates
+    x_after = points_after[indices, 0]  # Nearest neighbors' y-coordinates
+    y_after = points_after[indices, 1]  # Nearest neighbors' z-coordinates
     
     # Calculate the absolute differences in the y and z coordinates
+    x_diff = np.abs(x_before - x_after)
     y_diff = np.abs(y_before - y_after)
-    z_diff = np.abs(z_before - z_after)
     
     # Create a mask to find points in mesh_before where either the y or z axis difference
     # with the corresponding point in mesh_after exceeds the respective thresholds
-    yz_diff_mask = (y_diff >= y_threshold) | (z_diff >= z_threshold)
+    xy_diff_mask = (x_diff >= x_threshold) | (y_diff >= y_threshold)
     
     # Select the points from mesh_before where the y or z axis difference is larger than the threshold
-    missing_points = points_before[yz_diff_mask]
+    missing_points = points_before[xy_diff_mask]
     
     # Create a new point cloud with the points that have significant y or z axis differences
     mesh_missing = o3d.geometry.PointCloud()
@@ -455,30 +454,31 @@ def create_bbox_from_pcl(pcl):
     # Step 1: Convert point cloud to numpy array
     points = np.asarray(pcl.points)
 
-    # Step 2: Since data is planar, project points to a 2D plane (ignore one axis, e.g., X-axis)
-    yz_points = points[:, 1:3]  # Take Y and Z coordinates (planar in YZ plane)
+    # Step 2: Since data is planar, project points to a 2D plane (ignore one axis, e.g., Z-axis)
+    xy_points = points[:, 0:2]  # Take X and Y coordinates (planar in XY plane)
 
-    # Step 3: Get the 2D Axis-Aligned Bounding Box (AABB) for the planar points (YZ plane)
-    min_bound = np.min(yz_points, axis=0)
-    max_bound = np.max(yz_points, axis=0)
+    # Step 3: Get the 2D Axis-Aligned Bounding Box (AABB) for the planar points (XY plane)
+    min_bound = np.min(xy_points, axis=0)
+    max_bound = np.max(xy_points, axis=0)
 
-    # Step 4: Calculate width and height of the 2D bounding box (in YZ plane)
-    width = max_bound[0] - min_bound[0]  # Y-axis difference
-    height = max_bound[1] - min_bound[1]  # Z-axis difference
+    # Step 4: Calculate width and height of the 2D bounding box (in XY plane)
+    width = max_bound[0] - min_bound[0]  # X-axis difference
+    height = max_bound[1] - min_bound[1]  # Y-axis difference
 
-    # Step 5: Calculate the 2D area (in YZ plane)
+    # Step 5: Calculate the 2D area (in XY plane)
     area = width * height
 
-    print(f"2D Bounding Box in YZ plane - Width: {width}, Height: {height}, Area: {area}")
+    print(f"2D Bounding Box in XY plane - Width: {width}, Height: {height}, Area: {area}")
+    
     # Step 6: Create the bounding box as a LineSet for visualization
     centroid = np.mean(points, axis=0)  # Get the centroid of the point cloud
 
-    # Define the 3D bounding box corners (aligned to YZ plane)
+    # Define the 3D bounding box corners (aligned to XY plane)
     bbox_corners = np.array([
-        [centroid[0], min_bound[0], min_bound[1]],  # Min YZ point
-        [centroid[0], max_bound[0], min_bound[1]],  # Max Y, Min Z
-        [centroid[0], max_bound[0], max_bound[1]],  # Max YZ
-        [centroid[0], min_bound[0], max_bound[1]],  # Min Y, Max Z
+        [min_bound[0], min_bound[1], centroid[2]],  # Min XY point
+        [max_bound[0], min_bound[1], centroid[2]],  # Max X, Min Y
+        [max_bound[0], max_bound[1], centroid[2]],  # Max XY
+        [min_bound[0], max_bound[1], centroid[2]],  # Min X, Max Y
     ])
 
     # Define the lines connecting the corners
@@ -497,7 +497,6 @@ def create_bbox_from_pcl(pcl):
     axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
     axes.translate(centroid)
 
-
     return width, height, area, bbox_lineset, axes
 
 def compute_convex_hull_area_yz(point_cloud):
@@ -505,10 +504,10 @@ def compute_convex_hull_area_yz(point_cloud):
     points = np.asarray(point_cloud.points)
     
     # Step 2: Project the points onto the YZ plane (ignoring X-axis)
-    yz_points = points[:, 1:3]  # Extract only the Y and Z coordinates
+    xy_points = points[:, 1:3]  # Extract only the Y and Z coordinates
     
     # Step 3: Compute the convex hull using scipy's ConvexHull on the projected YZ points
-    hull_2d = ConvexHull(yz_points)
+    hull_2d = ConvexHull(xy_points)
     
     # Step 4: The area of the convex hull (in the YZ plane)
     area = hull_2d.area

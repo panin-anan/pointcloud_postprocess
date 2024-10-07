@@ -15,9 +15,8 @@ from mesh_calculations import (
     calculate_lost_volume_from_changedpcl,
     create_mesh_from_point_cloud,
     filter_project_points_by_plane,
-    filter_missing_points_by_yz,
+    filter_missing_points_by_xy,
     create_bbox_from_pcl,
-    compute_convex_hull_area_yz,
     project_points_onto_plane,
     sort_largest_cluster
 )
@@ -271,7 +270,7 @@ class MeshApp:
         mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
 
         #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
-        self.changed_mesh = filter_missing_points_by_yz(self.mesh1_local, self.mesh2_local, y_threshold=0.0002, z_threshold=0.0001)
+        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.0002, y_threshold=0.0001)
         # after filter difference
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
