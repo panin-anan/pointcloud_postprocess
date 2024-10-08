@@ -227,7 +227,6 @@ def fit_plane_to_pcd_pca(pcd):
 
         # Get the normal to the plane (third principal component)
         plane_normal = pca.components_[2]  # The normal to the plane (least variance direction)
-
         pca_basis = pca.components_  # Shape (3, 3)
 
         # The mean of the data gives the centroid
@@ -244,8 +243,11 @@ def transform_to_local_pca_coordinates(pcd, pca_basis, centroid):
 def project_points_onto_plane(points, plane_normal, plane_point):
     """Project points onto the plane defined by the normal and a point."""
     vectors = points - plane_point  # Vector from point to plane_point
+
     distances = np.dot(vectors, plane_normal)  # Project onto the normal
+
     projected_points = points - np.outer(distances, plane_normal)  # Subtract projection along the normal
+
     return projected_points
 
 def filter_project_points_by_plane(point_cloud, distance_threshold=0.001):
@@ -257,16 +259,17 @@ def filter_project_points_by_plane(point_cloud, distance_threshold=0.001):
     
     # Select points that are close to the plane (within the threshold)
     inlier_cloud = point_cloud.select_by_index(inliers)
-    
+ 
     pca_basis, plane_centroid = fit_plane_to_pcd_pca(inlier_cloud)
     points = np.asarray(inlier_cloud.points)
+
     projected_points = project_points_onto_plane(points, pca_basis[2], plane_centroid)
 
     # Create a new point cloud with the projected points
     projected_pcd = o3d.geometry.PointCloud()
     projected_pcd.points = o3d.utility.Vector3dVector(projected_points)
     projected_pcd.paint_uniform_color([1, 0, 0])  # Color projected points in red
-    
+
     # Color the inlier points (on the original RANSAC plane) in green
     inlier_cloud.paint_uniform_color([0, 1, 0])  # Color inlier points in green
 
@@ -274,7 +277,6 @@ def filter_project_points_by_plane(point_cloud, distance_threshold=0.001):
     #o3d.visualization.draw_geometries([projected_pcd])
 
     return projected_pcd, pca_basis, plane_centroid
-
 
 def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=True):
     # Step 1: Segment point cloud into clusters using DBSCAN
@@ -549,4 +551,30 @@ def sort_largest_cluster(pcd, eps=0.005, min_points=30, remove_outliers=True):
     #if remove_outliers and largest_cluster_pcd is not None:
     #    largest_cluster_pcd, _ = largest_cluster_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
+    if largest_cluster_pcd is None:
+        largest_cluster_pcd = o3d.geometry.PointCloud()
+
     return largest_cluster_pcd
+
+def transform_to_local_pca_coordinates(pcd, pca_basis, centroid):
+    points = np.asarray(pcd.points)
+    centered_points = points - centroid
+    local_points = centered_points @ pca_basis.T
+    local_pcl = o3d.geometry.PointCloud()
+    local_pcl.points = o3d.utility.Vector3dVector(local_points)
+    return local_pcl
+
+def transform_to_global_coordinates(local_pcl, pca_basis, centroid):
+    local_points = np.asarray(local_pcl.points)
+    
+    # Step 1: Apply the inverse PCA transformation (PCA basis transpose, since it's orthonormal)
+    global_points = local_points @ pca_basis
+    
+    # Step 2: Add the centroid back to translate the points back to the original coordinate system
+    global_points += centroid
+    
+    # Step 3: Create a new PointCloud with global coordinates
+    global_pcl = o3d.geometry.PointCloud()
+    global_pcl.points = o3d.utility.Vector3dVector(global_points)
+    
+    return global_pcl

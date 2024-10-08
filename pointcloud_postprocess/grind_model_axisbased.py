@@ -17,7 +17,7 @@ import pandas as pd
 
 # # # #  Turbine Section based on major axis  # # # #
 
-def slice_point_cloud_along_axis(pcd, flow_axis = 'y', num_sections = 10, threshold=0.0002):
+def slice_point_cloud_along_axis(pcd, flow_axis = 'z', num_sections = 10, threshold=0.0002):
     """Slice the point cloud into sections using leading edge points."""
     points = np.asarray(pcd.points)
 
@@ -93,7 +93,7 @@ def slice_point_cloud_along_leading_edge(point_cloud, leading_edge_points, num_s
     #o3d.visualization.draw_geometries(vis_element)
     return sections
 
-def detect_leading_edge_by_maxima(sections, leading_edge_axis='z'):
+def detect_leading_edge_by_maxima(sections, leading_edge_axis='x'):
     """
     Find the leading edge point based on a section of the point cloud.
     The leading edge is assumed to be the point with the largest value along the specified axis.
@@ -355,18 +355,27 @@ def recontour_LE_sections(LE_sections, leading_edge_points, target_parabolic_par
     return recontoured_sections, np.array(area_removals)
 
 
-def separate_sides(points, LE_vector, adjusted_center, vis_elements):
-    """Separate points into left and right sides based on the dot product with a perpendicular vector."""
+def separate_sides(points, LE_vector, adjusted_center, vis_elements, select_perp_vector=2):
+    """Separate points into left and right sides based on the dot product with a selected perpendicular vector."""
     # Find a vector perpendicular to the leading edge vector (LE_vector)
     arbitrary_vector = np.array([1, 0, 0]) if np.abs(LE_vector[0]) < 0.9 else np.array([0, 1, 0])
-    perp_vector = np.cross(LE_vector, arbitrary_vector)
-    perp_vector /= np.linalg.norm(perp_vector)  # Normalize the perpendicular vector
 
-    # Compute dot product of points with the perpendicular vector
+    # Compute the first perpendicular vector using cross product
+    perp_vector_1 = np.cross(LE_vector, arbitrary_vector)
+    perp_vector_1 /= np.linalg.norm(perp_vector_1)  # Normalize the first perpendicular vector
+
+    # Compute the second perpendicular vector using cross product between LE_vector and perp_vector_1
+    perp_vector_2 = np.cross(LE_vector, perp_vector_1)
+    perp_vector_2 /= np.linalg.norm(perp_vector_2)  # Normalize the second perpendicular vector
+
+    # Choose the perpendicular vector based on user input
+    perp_vector = perp_vector_1 if select_perp_vector == 1 else perp_vector_2
+
+    # Compute dot product of points with the selected perpendicular vector
     directions = points - adjusted_center
     dot_products = np.dot(directions, perp_vector)
 
-     # Use a tolerance to avoid missing points near the boundary (where dot_product ≈ 0)
+    # Use a tolerance to avoid missing points near the boundary (where dot_product ≈ 0)
     left_side = points[dot_products <= 0]
     right_side = points[dot_products >= 0]
 
@@ -500,16 +509,22 @@ def main():
         "project_tolerance": 0.0002 * scale_factor,
     }
 
-    theta_x = np.deg2rad(-15)  # degrees around X-axis
-    theta_y = np.deg2rad(31)  # degrees around Y-axis
-    theta_z = np.deg2rad(-12)  # degrees around Z-axis
+    theta_x = np.deg2rad(0)  # degrees around X-axis
+    theta_y = np.deg2rad(0)  # degrees around Y-axis
+    theta_z = np.deg2rad(0)  # degrees around Z-axis
 
     # Rotate the point cloud
     mstore.mesh1_pcl = mstore.rotate_point_cloud(mstore.mesh1_pcl, theta_x, theta_y, theta_z)
     
     #Create LE sections
-    LE_sections_mesh1, LE_sections_mesh1_length = slice_point_cloud_along_axis(mstore.mesh1_pcl, flow_axis = 'y', num_sections = 10, threshold=thresholds["project_tolerance"])
+    LE_sections_mesh1, LE_sections_mesh1_length = slice_point_cloud_along_axis(mstore.mesh1_pcl, flow_axis = 'z', num_sections = 10, threshold=thresholds["project_tolerance"])
+    
+    points = np.asarray(mstore.mesh1_pcl.points)
+    centroid = points.mean(axis=0) 
+    axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.05, origin=[0, 0, 0])
+    axes.translate(centroid)
 
+    o3d.visualization.draw_geometries([mstore.mesh1_pcl, axes])
     mvis.visualize_pcl_overlay(mstore.mesh1_pcl, LE_sections_mesh1)
 
     mstore.mesh1_LE_points = detect_leading_edge_by_maxima(LE_sections_mesh1, leading_edge_axis='x')
