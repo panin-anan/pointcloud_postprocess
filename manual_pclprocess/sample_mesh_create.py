@@ -1,6 +1,7 @@
 import open3d as o3d
 import numpy as np
 from scipy.spatial import cKDTree, Delaunay
+from mesh_processor import MeshProcessor
 
 # Define flat plate mesh for testing
 
@@ -135,6 +136,9 @@ def create_LE_mesh_before(length, width, height, curvature, divisions_length=4, 
 
     return mesh
 
+
+
+
 # Parameters in mm
 length = 50.0
 width = 10.0
@@ -150,8 +154,16 @@ divisions_width = 50
 
 #mesh_before = create_flat_plate_mesh_before(length, width, thickness, divisions_length, divisions_width, filename="flat_plate_fine_mesh.ply")
 #mesh_after = create_flat_plate_mesh_after(length, width, thickness, sink_depth, sink_size, divisions_length, divisions_width, filename="grinded_plate_fine_mesh.ply")
-mesh_LE = create_LE_mesh_before(length, width, height, curvature, divisions_length, divisions_width, filename="LE_mesh.ply")
+#mesh_LE = create_LE_mesh_before(length, width, height, curvature, divisions_length, divisions_width, filename="LE_mesh.ply")
 
-o3d.visualization.draw_geometries([mesh_LE], window_name="Fine Mesh", width=800, height=600)
+mstore = MeshProcessor()
+mstore.load_mesh(1)
+
+if mstore.mesh1_pcl == None:
+    mstore.mesh1_pcl = mstore.mesh1.sample_points_poisson_disk(number_of_points=200000)
+
+o3d.io.write_point_cloud("FARO_turbine_pcl_partial.ply", mstore.mesh1_pcl)
+
+o3d.visualization.draw_geometries([mstore.mesh1_pcl], window_name="Fine Mesh", width=800, height=600)
 
 
