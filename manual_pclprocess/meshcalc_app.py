@@ -20,7 +20,8 @@ from mesh_calculations import (
     project_points_onto_plane,
     sort_largest_cluster,
     transform_to_local_pca_coordinates,
-    transform_to_global_coordinates
+    transform_to_global_coordinates,
+    sort_plate_cluster
 )
 
 
@@ -111,20 +112,29 @@ class MeshApp:
         if self.mesh1 and self.mesh2:
             mesh1_colored = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color for mesh1
             mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color for mesh2
-            
+
             overlay_meshes = [mesh1_colored, mesh2_colored]
             vis_overlay = o3d.visualization.Visualizer()
             vis_overlay.create_window(window_name="Overlay Meshes", width=800, height=600, left=50, top=50)
+        
+            # Add both geometries to the visualizer
             for mesh in overlay_meshes:
                 vis_overlay.add_geometry(mesh)
+
+            # Set custom rendering options for each mesh
+            render_option = vis_overlay.get_render_option()
+            render_option.point_size = 0.3  # Set point size for mesh1
+            render_option_default = vis_overlay.get_render_option()
+            render_option_default.point_size = 0.3  # Set a different point size for mesh2
 
             while True:
                 vis_overlay.poll_events()
                 vis_overlay.update_renderer()
-        
+
                 # Optionally, add a condition to break the loop, e.g., a key press or window close event
                 if not vis_overlay.poll_events():
                     break
+
             vis_overlay.destroy_window()
         else:
             messagebox.showwarning("Warning", "Mesh not available")
@@ -213,6 +223,8 @@ class MeshApp:
         mesh1_beforefilter = self.mesh1
         self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
         self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
+        self.mesh1 = sort_plate_cluster(self.mesh1)
+        self.mesh2 = sort_plate_cluster(self.mesh2)
         o3d.visualization.draw_geometries([self.mesh1, mesh1_beforefilter])
         # Check alignment
         cos_angle = np.dot(mesh1_pca_basis[2], mesh2_pca_basis[2]) / (np.linalg.norm(mesh1_pca_basis[2]) * np.linalg.norm(mesh2_pca_basis[2]))
@@ -233,7 +245,7 @@ class MeshApp:
         mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
 
         #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
-        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.0002, y_threshold=0.0001)
+        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.0001, y_threshold=0.0001)
         # after filter difference
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
