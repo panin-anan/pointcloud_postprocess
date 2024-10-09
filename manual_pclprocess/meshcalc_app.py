@@ -21,7 +21,8 @@ from mesh_calculations import (
     sort_largest_cluster,
     transform_to_local_pca_coordinates,
     transform_to_global_coordinates,
-    sort_plate_cluster
+    sort_plate_cluster,
+    compute_convex_hull_area_xy
 )
 
 
@@ -241,16 +242,17 @@ class MeshApp:
         self.mesh2_local = transform_to_local_pca_coordinates(self.mesh2, mesh1_pca_basis, mesh1_plane_centroid )
   
 
-        mesh1_colored = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color
-        mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
+        self.mesh1_local = self.mesh1_local.paint_uniform_color([1, 0, 0])  # Red color
+        self.mesh2_local = self.mesh2_local.paint_uniform_color([0, 1, 0])  # Green color
 
         #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
-        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.0001, y_threshold=0.0001)
+        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
+        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.00012, y_threshold=0.00008)
         # after filter difference
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
-        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
+        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local, axes])
         # after sorting
-        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.0005, min_points=30, remove_outliers=True)
+        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.002, min_points=20, remove_outliers=True)
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
 
 
@@ -261,12 +263,14 @@ class MeshApp:
         else:
             #area from bounding box
             width, height, area, bbox_lineset, axes = create_bbox_from_pcl(self.changed_mesh)
+            area, hull_pcd, line_set = compute_convex_hull_area_xy(self.changed_mesh)
+
             print(f"bbox width: {width} m, height: {height} m")
             fixed_thickness = 0.002 # in m
             lost_volume = area * fixed_thickness
             print(f"Lost Volume: {lost_volume} m^3")
             
-            o3d.visualization.draw_geometries([self.changed_mesh, bbox_lineset, axes])
+            o3d.visualization.draw_geometries([self.changed_mesh, line_set, axes])
 
         changed_mesh_global = transform_to_global_coordinates(self.changed_mesh, mesh1_pca_basis, mesh1_plane_centroid) 
 
