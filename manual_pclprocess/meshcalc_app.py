@@ -223,9 +223,9 @@ class MeshApp:
         mesh1_beforefilter = self.mesh1
         self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
         self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
-        #self.mesh1 = sort_plate_cluster(self.mesh1)
-        #self.mesh2 = sort_plate_cluster(self.mesh2)
-        self.mesh1, _ = self.mesh1.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        self.mesh1 = sort_plate_cluster(self.mesh1)
+        self.mesh2 = sort_plate_cluster(self.mesh2)
+
         o3d.visualization.draw_geometries([self.mesh1, mesh1_beforefilter])
         # Check alignment
         cos_angle = np.dot(mesh1_pca_basis[2], mesh2_pca_basis[2]) / (np.linalg.norm(mesh1_pca_basis[2]) * np.linalg.norm(mesh2_pca_basis[2]))
@@ -254,7 +254,7 @@ class MeshApp:
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
         # after sorting
-        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.0005, min_points=30, remove_outliers=True)
+        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.001, min_points=10, remove_outliers=True)
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
 
 
