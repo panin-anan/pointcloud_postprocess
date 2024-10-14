@@ -543,8 +543,6 @@ def sort_plate_cluster(pcd, eps=0.0005, min_points=100, remove_outliers=True):
             max_cluster_size = len(cluster_indices)
             largest_cluster_pcd = pcd.select_by_index(cluster_indices)
 
-    print(f"Largest cluster has {max_cluster_size} points")
-
     # Optionally: Remove outliers (if remove_outliers is set to True)
     #if remove_outliers and largest_cluster_pcd is not None:
     #    largest_cluster_pcd, _ = largest_cluster_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)

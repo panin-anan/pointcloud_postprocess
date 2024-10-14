@@ -123,9 +123,9 @@ class MeshApp:
 
             # Set custom rendering options for each mesh
             render_option = vis_overlay.get_render_option()
-            render_option.point_size = 0.3  # Set point size for mesh1
+            render_option.point_size = 3.0  # Set point size for mesh1
             render_option_default = vis_overlay.get_render_option()
-            render_option_default.point_size = 0.3  # Set a different point size for mesh2
+            render_option_default.point_size = 1.0  # Set a different point size for mesh2
 
             while True:
                 vis_overlay.poll_events()
@@ -223,29 +223,33 @@ class MeshApp:
         mesh1_beforefilter = self.mesh1
         self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
         self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
-        self.mesh1 = sort_plate_cluster(self.mesh1)
-        self.mesh2 = sort_plate_cluster(self.mesh2)
+        #self.mesh1 = sort_plate_cluster(self.mesh1)
+        #self.mesh2 = sort_plate_cluster(self.mesh2)
+        self.mesh1, _ = self.mesh1.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
         o3d.visualization.draw_geometries([self.mesh1, mesh1_beforefilter])
         # Check alignment
         cos_angle = np.dot(mesh1_pca_basis[2], mesh2_pca_basis[2]) / (np.linalg.norm(mesh1_pca_basis[2]) * np.linalg.norm(mesh2_pca_basis[2]))
         angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) * 180 / np.pi
-        if abs(angle) > 10:     #10 degree misalignment throw error
+        if abs(angle) > 2:     #2 degree misalignment throw error
             raise ValueError(f"Plane normals differ too much: {angle} degrees")
 
         projected_points_mesh2 = project_points_onto_plane(np.asarray(self.mesh2.points), mesh1_pca_basis[2], mesh1_plane_centroid)
         self.mesh2.points = o3d.utility.Vector3dVector(projected_points_mesh2)
 
+        self.mesh1 = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color
+        self.mesh2 = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
+        o3d.visualization.draw_geometries([self.mesh1, self.mesh2])
 
         #rotate points to yz plane
-        self.mesh1_local = transform_to_local_pca_coordinates(self.mesh1, mesh1_pca_basis, mesh1_plane_centroid )
-        self.mesh2_local = transform_to_local_pca_coordinates(self.mesh2, mesh1_pca_basis, mesh1_plane_centroid )
+        self.mesh1_local = transform_to_local_pca_coordinates(self.mesh1, mesh1_pca_basis, mesh1_plane_centroid)
+        self.mesh2_local = transform_to_local_pca_coordinates(self.mesh2, mesh1_pca_basis, mesh1_plane_centroid)
   
 
         mesh1_colored = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color
         mesh2_colored = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
 
         #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
-        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.0001, y_threshold=0.0001)
+        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.00012, y_threshold=0.00008)
         # after filter difference
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
