@@ -496,27 +496,45 @@ def create_bbox_from_pcl(pcl):
     bbox_lineset.paint_uniform_color([1, 0, 0])  # Red for the bounding box
 
     # Step 7: Create a small sphere at the centroid for visualization
-    axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
+    axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.001, origin=[0,0,0])
     axes.translate(centroid)
 
     return width, height, area, bbox_lineset, axes
 
-def compute_convex_hull_area_yz(point_cloud):
+def compute_convex_hull_area_xy(point_cloud):
     # Step 1: Convert point cloud to numpy array
     points = np.asarray(point_cloud.points)
     
-    # Step 2: Project the points onto the YZ plane (ignoring X-axis)
-    xy_points = points[:, 1:3]  # Extract only the Y and Z coordinates
+    # Step 2: Project the points onto the XY plane
+    xy_points = points[:, 0:2]  # Extract only the X and Y coordinates
     
-    # Step 3: Compute the convex hull using scipy's ConvexHull on the projected YZ points
+    # Step 3: Compute the convex hull using scipy's ConvexHull on the projected XY points
     hull_2d = ConvexHull(xy_points)
     
-    # Step 4: The area of the convex hull (in the YZ plane)
+    # Step 4: The area of the convex hull (in the XY plane)
     area = hull_2d.area
 
-    print(f"Convex Hull Area in YZ Plane: {area}")
+    # Step 4: Create a new point cloud that includes the convex hull points for visualization
+    hull_points_3d = points[hull_2d.vertices, :]  # Get the 3D points corresponding to the convex hull
     
-    return area, hull_2d
+    # Step 5: Create Open3D point cloud for the hull and original points
+    hull_pcd = o3d.geometry.PointCloud()
+    hull_pcd.points = o3d.utility.Vector3dVector(hull_points_3d)
+    
+    # Step 6: Create a LineSet to represent the convex hull
+    lines = []
+    for simplex in hull_2d.simplices:
+        lines.append([simplex[0], simplex[1]])
+        
+    line_set = o3d.geometry.LineSet()
+    line_set.points = o3d.utility.Vector3dVector(points)
+    line_set.lines = o3d.utility.Vector2iVector(lines)
+
+    # Optional: Add colors to the lines
+    colors = [[1, 0, 0] for _ in range(len(lines))]  # Red color for hull lines
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+
+    return area, hull_pcd, line_set
 
 def sort_plate_cluster(pcd, eps=0.0005, min_points=100, remove_outliers=True):
     # Step 1: Segment point cloud into clusters using DBSCAN
