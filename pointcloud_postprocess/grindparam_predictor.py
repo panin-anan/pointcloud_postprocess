@@ -6,7 +6,8 @@ from sklearn.svm import SVR
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
-
+import tkinter as tk
+from tkinter import filedialog
 
 def load_data(file_path):
     #Load dataset from a CSV file.
@@ -28,7 +29,7 @@ def preprocess_data(data, target_column):
 
     return X_train, X_test, y_train, y_test, scaler
 
-def train_svr(X_train, y_train):
+def train_multi_svr(X_train, y_train):
     """
     Train a Support Vector Regressor (SVR) for multi-output regression.
     Wrap the SVR with MultiOutputRegressor to handle multiple targets.
@@ -41,6 +42,15 @@ def train_svr(X_train, y_train):
 
     return multioutput_svr
 
+def train_single_svr(X_train, y_train):
+    """
+    Train a Support Vector Regressor (SVR) for single-output regression.
+    """
+    svr = SVR(kernel='rbf', C=100, gamma=0.1, epsilon=0.1)
+    svr.fit(X_train, y_train)
+
+    return svr
+
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
 
@@ -51,7 +61,7 @@ def evaluate_model(model, X_test, y_test):
     print(f"Mean Squared Error: {mse}")
     print(f"R^2 Score: {r2}")
 
-    '''
+    
     # Plot actual vs predicted for each output
     plt.figure(figsize=(12, 6))
     for i, col in enumerate(y_test.columns):
@@ -63,7 +73,7 @@ def evaluate_model(model, X_test, y_test):
     
     plt.tight_layout()
     plt.show()
-    '''
+    
 
 def create_grind_model(mstore):
     """
@@ -80,15 +90,15 @@ def create_grind_model(mstore):
         X_train, X_test, y_train, y_test, scaler = preprocess_data(data, target_columns)
 
         # Train the SVR model
-        mstore.model = train_svr(X_train, y_train)
-        mstore.scaler = scaler  # Save the scaler for scaling inputs later
+        model = train_svr(X_train, y_train)
+        scaler = scaler  # Save the scaler for scaling inputs later
 
         # Optionally, evaluate the model on the test set
         evaluate_model(mstore.model, X_test, y_test)
     else:
         print("Using previously trained model.")
 
-
+'''
 def predict_grind_param(mstore, feed_rate):
     # Prepare inputs for the SVR model (lost volume + feed rate for each section)
     input_data = pd.DataFrame({
@@ -109,3 +119,38 @@ def predict_grind_param(mstore, feed_rate):
     
     # Print results with correct segment and subsection designations
     print(predicted_rpm_force[['Segment', 'Sub_Section', 'RPM', 'Force']])
+'''
+
+def open_file_dialog():
+    # Create a Tkinter window
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    # Open file dialog and return selected file path
+    file_path = filedialog.askopenfilename(title="Select CSV file", filetypes=[("CSV files", "*.csv")])
+    return file_path
+
+def main():
+    # Open file dialog to select CSV file
+    file_path = open_file_dialog()
+    if not file_path:
+        print("No file selected. Exiting.")
+        return
+
+
+    data = load_data(file_path)
+    target_columns = ['RPM', 'Force']
+
+    # Preprocess the data (train the model using the CSV data, for example)
+    X_train, X_test, y_train, y_test, scaler = preprocess_data(data, target_columns)
+
+    # Train the SVR model
+    model = train_multi_svr(X_train, y_train)
+
+    # Optionally, evaluate the model on the test set
+    evaluate_model(model, X_test, y_test)
+
+
+
+if __name__ == "__main__":
+    main()
