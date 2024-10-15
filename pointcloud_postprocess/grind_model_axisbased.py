@@ -547,7 +547,7 @@ def main():
     # Fixed feed rate
     feed_rate = 20
     predict_grind_param(mstore, feed_rate)
-
+    print('Done')
 
 if __name__ == "__main__":
     main()
