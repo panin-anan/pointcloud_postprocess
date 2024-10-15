@@ -536,39 +536,77 @@ def compute_convex_hull_area_xy(point_cloud):
 
     return area, hull_pcd, line_set
 
-def sort_plate_cluster(pcd, eps=0.0005, min_points=100, remove_outliers=True):
-    # Step 1: Segment point cloud into clusters using DBSCAN
-    labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))
+def sort_plate_cluster(pcd, eps=0.0005, min_points=20, remove_outliers=False, use_downsampling=False, downsample_voxel_size=0.0002):
+    if use_downsampling and downsample_voxel_size > 0:
+        downsampled_pcd = pcd.voxel_down_sample(voxel_size=downsample_voxel_size)
+    else:
+        downsampled_pcd = pcd
+
+    # Step 2: Segment downsampled point cloud into clusters using DBSCAN
+    labels = np.array(downsampled_pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))
     
     # Number of clusters (label -1 indicates noise)
     num_clusters = labels.max() + 1
+    if num_clusters == 0:
+        return o3d.geometry.PointCloud()  # Return empty point cloud if no clusters are found
 
-    colors = plt.get_cmap("tab20")(labels / (num_clusters if num_clusters > 0 else 1))
-    colors[labels == -1] = [0, 0, 0, 1]  # Color noise points black
-    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    o3d.visualization.draw_geometries([pcd])
-
-    # Step 2: Find the largest cluster
+    # Step 3: Find the largest cluster in the downsampled point cloud
     max_cluster_size = 0
-    largest_cluster_pcd = None
+    largest_cluster_indices = None
 
     for cluster_idx in range(num_clusters):
         # Get the indices of the points that belong to the current cluster
         cluster_indices = np.where(labels == cluster_idx)[0]
-        
         # If this cluster is the largest we've found, update the largest cluster info
         if len(cluster_indices) > max_cluster_size:
             max_cluster_size = len(cluster_indices)
-            largest_cluster_pcd = pcd.select_by_index(cluster_indices)
+            largest_cluster_indices = cluster_indices
 
-    # Optionally: Remove outliers (if remove_outliers is set to True)
-    #if remove_outliers and largest_cluster_pcd is not None:
-    #    largest_cluster_pcd, _ = largest_cluster_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    if largest_cluster_indices is None:
+        return o3d.geometry.PointCloud()  # Return empty point cloud if no largest cluster is found
 
-    if largest_cluster_pcd is None:
-        largest_cluster_pcd = o3d.geometry.PointCloud()
+    # Step 4: Map the largest cluster back to the original point cloud
+    largest_cluster_pcd = downsampled_pcd.select_by_index(largest_cluster_indices)
 
-    return largest_cluster_pcd
+    # Find corresponding points in the original high-resolution point cloud
+    distances = pcd.compute_point_cloud_distance(largest_cluster_pcd)
+    original_cluster_indices = np.where(np.asarray(distances) < downsample_voxel_size*10)[0]  # Tolerance to find nearest neighbors
+    high_res_largest_cluster_pcd = pcd.select_by_index(original_cluster_indices)
+
+    # Optionally remove outliers from the largest cluster
+    if remove_outliers and high_res_largest_cluster_pcd is not None:
+        high_res_largest_cluster_pcd, _ = high_res_largest_cluster_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+
+    return high_res_largest_cluster_pcd
+
+def sort_plate_cluster_centroid(pcd, distance_threshold=0.05, remove_outliers = True):
+    # Step 1: Calculate the centroid of the point cloud
+    centroid = np.mean(np.asarray(pcd.points), axis=0)
+    print(f"Centroid: {centroid}")
+    
+    # Step 2: Calculate the distance of each point from the centroid
+    distances = np.linalg.norm(np.asarray(pcd.points) - centroid, axis=1)
+    
+    # Step 3: Filter points based on the distance threshold
+    inlier_indices = np.where(distances < distance_threshold)[0]
+    
+    # Select inliers (points within the distance threshold)
+    filtered_pcd = pcd.select_by_index(inlier_indices)
+
+    # Optionally: Remove statistical outliers
+    if remove_outliers and filtered_pcd is not None:
+        filtered_pcd, _ = filtered_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    
+    # Color the points (filtered points will be colored, rest will be black)
+    colors = np.zeros((len(pcd.points), 3))  # Initialize all points to black
+    colors[inlier_indices] = [1, 0, 0]  # Color inliers red
+    pcd.colors = o3d.utility.Vector3dVector(colors)
+
+    # Visualize the point cloud with colored inliers
+    o3d.visualization.draw_geometries([pcd])
+
+    return filtered_pcd
+
 
 
 def sort_largest_cluster(pcd, eps=0.005, min_points=30, remove_outliers=True):

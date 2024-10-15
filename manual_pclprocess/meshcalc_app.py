@@ -22,7 +22,8 @@ from mesh_calculations import (
     transform_to_local_pca_coordinates,
     transform_to_global_coordinates,
     sort_plate_cluster,
-    compute_convex_hull_area_xy
+    compute_convex_hull_area_xy,
+    sort_plate_cluster_centroid
 )
 
 
@@ -224,10 +225,11 @@ class MeshApp:
         mesh1_beforefilter = self.mesh1
         self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
         self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
-        self.mesh1 = sort_plate_cluster(self.mesh1)
-        self.mesh2 = sort_plate_cluster(self.mesh2)
-
-        o3d.visualization.draw_geometries([self.mesh1, mesh1_beforefilter])
+        self.mesh1 = sort_plate_cluster(self.mesh1, use_downsampling=True)
+        self.mesh2 = sort_plate_cluster(self.mesh2, use_downsampling=True)
+        #self.mesh1 = sort_plate_cluster_centroid(self.mesh1, distance_threshold=0.03)
+        #self.mesh2 = sort_plate_cluster_centroid(self.mesh2, distance_threshold=0.03)
+        o3d.visualization.draw_geometries([self.mesh1])
         # Check alignment
         cos_angle = np.dot(mesh1_pca_basis[2], mesh2_pca_basis[2]) / (np.linalg.norm(mesh1_pca_basis[2]) * np.linalg.norm(mesh2_pca_basis[2]))
         angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) * 180 / np.pi
@@ -250,20 +252,13 @@ class MeshApp:
         self.mesh2_local = self.mesh2_local.paint_uniform_color([0, 1, 0])  # Green color
 
         #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
-<<<<<<< HEAD
-=======
         axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
->>>>>>> 1aa316cedc8aea5fbf73cfda09c5d6a4c2a251d6
         self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.00012, y_threshold=0.00008)
         # after filter difference
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local, axes])
         # after sorting
-<<<<<<< HEAD
-        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.001, min_points=10, remove_outliers=True)
-=======
         self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.002, min_points=20, remove_outliers=True)
->>>>>>> 1aa316cedc8aea5fbf73cfda09c5d6a4c2a251d6
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
 
 
