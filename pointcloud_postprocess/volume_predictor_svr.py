@@ -5,8 +5,6 @@ from tkinter import filedialog
 import os
 import joblib
 
-import matplotlib.pyplot as plt
-
 def load_model(use_fixed_path=False, fixed_path='saved_models/svr_model.pkl'):
     if use_fixed_path:
         # If the argument is True, use the fixed path

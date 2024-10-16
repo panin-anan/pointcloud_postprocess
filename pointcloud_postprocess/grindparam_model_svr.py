@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 from sklearn.multioutput import MultiOutputRegressor
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog
@@ -22,6 +22,7 @@ def preprocess_data(data, target_column):
     X = data.drop(columns=target_column)
     y = data[target_column]
 
+
     # Split data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
@@ -29,6 +30,9 @@ def preprocess_data(data, target_column):
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
+
+    X_train = pd.DataFrame(X_train, columns=X.columns)
+    X_test = pd.DataFrame(X_test, columns=X.columns)
 
     return X_train, X_test, y_train, y_test, scaler
 
@@ -39,9 +43,9 @@ def train_multi_svr_with_grid_search(X_train, y_train):
     """
     # Define the parameter grid
     param_grid = {
-        'estimator__C': [0.05, 0.1, 0.2, 0.5, 1, 5, 10],
-        'estimator__gamma': [0.005, 0.01, 0.02, 0.05, 0.1],
-        'estimator__epsilon': [0.005, 0.01, 0.02, 0.05, 0.1],
+        'estimator__C': [0.05, 0.1, 0.2, 0.5, 1, 5, 10, 20, 50, 100, 150, 200],
+        'estimator__gamma': [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3],
+        'estimator__epsilon': [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3],
         'estimator__kernel': ['rbf']
     }
 
@@ -51,7 +55,7 @@ def train_multi_svr_with_grid_search(X_train, y_train):
     multioutput_svr = MultiOutputRegressor(svr)
 
     # Use GridSearchCV to search for the best hyperparameters
-    grid_search = GridSearchCV(multioutput_svr, param_grid, cv=5, scoring='neg_mean_squared_error', verbose=1, n_jobs=-1)
+    grid_search = GridSearchCV(multioutput_svr, param_grid, cv=5, scoring='neg_root_mean_squared_error', verbose=1, n_jobs=-1)
     grid_search.fit(X_train, y_train)
 
     # Print the best parameters found by GridSearchCV
@@ -69,8 +73,12 @@ def evaluate_model(model, X_test, y_test):
  
     # Evaluate the model with Mean Squared Error and R^2 Score
     mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse) 
+    mean_abs = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
+    print(f"Mean Absolute Error: {mean_abs}")
+    print(f"RMS Error: {rmse}")
     print(f"Mean Squared Error: {mse}")
     print(f"R^2 Score: {r2}")
 
@@ -106,7 +114,7 @@ def open_file_dialog():
     file_path = filedialog.askopenfilename(title="Select CSV file", filetypes=[("CSV files", "*.csv")])
     return file_path
 
-def save_model(model, folder_name='saved_models', filename='svr_model.pkl'):
+def save_model(model, scaler, folder_name='saved_models', modelname='svr_model.pkl', scalername='scaler.pkl'):
     # Get the current working directory
     current_dir = os.getcwd()
 
@@ -117,11 +125,14 @@ def save_model(model, folder_name='saved_models', filename='svr_model.pkl'):
     os.makedirs(folder_path, exist_ok=True)
 
     # Create the full filepath to save the model
-    filepath = os.path.join(folder_path, filename)
+    model_filepath = os.path.join(folder_path, modelname)
+    scaler_filepath = os.path.join(folder_path, scalername)
 
     # Save the model to the specified filepath
-    joblib.dump(model, filepath)
-    print(f"Model saved to {filepath}")
+    joblib.dump(model, model_filepath)
+    joblib.dump(scaler, scaler_filepath)
+    print(f"Model saved to {model_filepath}")
+    print(f"Scaler saved to {scaler_filepath}")
 
 def load_model(folder_name='saved_models', filename='svr_model.pkl'):
     # Get the current working directory
@@ -147,12 +158,35 @@ def main():
         return
 
     grind_data = load_data(file_path)
+    #add data from another file
+    another_file_path = open_file_dialog()
+    if not another_file_path:
+        print("No second file selected. Continuing with the first file data.")
+    else:
+        additional_data = load_data(another_file_path)
+        # Assuming you're concatenating rows or merging based on a common column
+        grind_data = pd.concat([grind_data, additional_data], ignore_index=True)
+
+    # Delete rows where removed_material is less than 12
+    grind_data = grind_data[grind_data['removed_material'] >= 12]
+
+    # Filter out points which have mad of more than 1000
+    grind_data = grind_data[grind_data['mad_rpm'] <= 1000]
+
+    # Filter out avg rpm that is lower than half of rpm_setpoint
+    grind_data = grind_data[grind_data['avg_rpm'] >= grind_data['rpm_setpoint'] / 2]
+
+    grind_data = grind_data[pd.isna(grind_data['failure_msg'])]
+    print(grind_data)
+
     #drop unrelated columns
-    related_columns = ['avg_rpm', 'removed_material', 'initial_wear', 'force_setpoint', 'grind_time_setpoint']
+    related_columns = [ 'grind_time', 'avg_rpm', 'avg_force', 'initial_wear', 'removed_material']
     grind_data = grind_data[related_columns]
 
+    
+
     #desired output
-    target_columns = ['force_setpoint', 'grind_time_setpoint']
+    target_columns = ['avg_force', 'grind_time']
 
     # Preprocess the data (train the model using the CSV data, for example)
     X_train, X_test, y_train, y_test, scaler = preprocess_data(grind_data, target_columns)
@@ -164,18 +198,9 @@ def main():
 
     # Optionally, evaluate the model on the test set
     evaluate_model(best_model, X_test, y_test)
-    X_test_original = scaler.inverse_transform(X_test)
-    y_pred = best_model.predict(X_test)
-    print(X_test_original)
-    print(y_pred)
-    # save model
-    #save_model(best_model, folder_name='saved_models', filename='grind_model_svr_V1.pkl')
-
-    #read current belt's RPM*Force*time value
-
-    #apply knockdown factor to predicted volume lost to get a more accurate RPM/force profile for desired volume
-
-
+ 
+    #save model
+    save_model(best_model, scaler, folder_name='saved_models', modelname='grindparam_model_svr_V1.pkl', scalername='grindparam_scaler_svr_V1.pkl')
 
 if __name__ == "__main__":
     main()
