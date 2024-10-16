@@ -30,7 +30,6 @@ def load_model(use_fixed_path=False, fixed_path='saved_models/svr_model.pkl'):
 
 def main():
     #get grind model
-    print('check')
     use_fixed_model_path = False# Set this to True or False based on your need
     
     if use_fixed_model_path:
@@ -39,16 +38,15 @@ def main():
         grind_model = load_model(use_fixed_path=True, fixed_path=fixed_path)
     else:
         # Load model using file dialog
-        print('check')
         grind_model = load_model(use_fixed_path=False)
 
-    #read current belt's 'initial wear', 'desired_grind_volume', 'RPM' and predict 'Force' and 'grind_time'
-    initial_wear = 500000           
-    desired_grind_volume = 40      # in mm^3
-    avg_RPM = 9500
+    #read current belt's 'initial wear', 'removed_volume', 'RPM' and predict 'Force' and 'grind_time'
+    initial_wear = 1000000           
+    removed_volume = 200      # in mm^3
+    avg_rpm = 11000
 
      # Combine input features into a 2D array (1 sample, 3 features)
-    input_data = np.array([[initial_wear, desired_grind_volume, avg_rpm]])
+    input_data = np.array([[avg_rpm, removed_volume, initial_wear]])
 
     # Predict 'Force' and 'grind_time'
     predictions = grind_model.predict(input_data)
@@ -60,3 +58,6 @@ def main():
     # Print the predictions
     print(f"Predicted Force: {predicted_force}")
     print(f"Predicted Grind Time: {predicted_grind_time}")
+
+if __name__ == "__main__":
+    main()
