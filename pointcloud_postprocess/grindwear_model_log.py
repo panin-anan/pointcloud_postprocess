@@ -8,6 +8,9 @@ from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog
+from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LinearRegression
+
 
 def load_data(file_path):
     #Load dataset from a CSV file.
@@ -24,8 +27,8 @@ def preprocess_data(data, target_column):
 
     # Feature scaling
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
+    #X_train = scaler.fit_transform(X_train)
+    #X_test = scaler.transform(X_test)
 
     return X_train, X_test, y_train, y_test, scaler
 
@@ -51,6 +54,25 @@ def train_single_svr(X_train, y_train):
 
     return svr
 
+def evaluate_model_single(model, X_test, y_test):
+    y_pred = model.predict(X_test)
+
+    # Evaluate the model with Mean Squared Error and R^2 Score
+    mse = mean_squared_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    print(f"Mean Squared Error: {mse}")
+    print(f"R^2 Score: {r2}")
+
+    # Plot actual vs predicted for grind_eff (single output)
+    plt.figure(figsize=(6, 6))
+    plt.scatter(y_test, y_pred)
+    plt.xlabel("Actual Grind Efficiency")
+    plt.ylabel("Predicted Grind Efficiency")
+    plt.title("Actual vs Predicted Grind Efficiency")
+    plt.tight_layout()
+    plt.show()
+
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
 
@@ -73,53 +95,6 @@ def evaluate_model(model, X_test, y_test):
     
     plt.tight_layout()
     plt.show()
-    
-
-def create_grind_model(mstore):
-    """
-    Train the model if it does not exist yet in the MeshProcessor object.
-    :param mstore: MeshProcessor object that holds the model and data.
-    """
-    if mstore.model is None:
-        # Load the pre-trained model dataset
-        file_path = '/workspaces/BrightSkyRepoLinux/mesh_sample/grinding_material_removal.csv'
-        data = load_data(file_path)
-        target_columns = ['RPM', 'Force']
-
-        # Preprocess the data (train the model using the CSV data, for example)
-        X_train, X_test, y_train, y_test, scaler = preprocess_data(data, target_columns)
-
-        # Train the SVR model
-        model = train_svr(X_train, y_train)
-        scaler = scaler  # Save the scaler for scaling inputs later
-
-        # Optionally, evaluate the model on the test set
-        evaluate_model(mstore.model, X_test, y_test)
-    else:
-        print("Using previously trained model.")
-
-'''
-def predict_grind_param(mstore, feed_rate):
-    # Prepare inputs for the SVR model (lost volume + feed rate for each section)
-    input_data = pd.DataFrame({
-        'Feed_Rate': [feed_rate] * len(mstore.lost_volumes),
-        'Lost_Volume': [param['lost_volume'] for param in mstore.lost_volumes]
-    })
-
-    # Scale the input_data using the stored scaler
-    input_data_scaled = mstore.scaler.transform(input_data)
-
-    # Predict the RPM and Force using the lost volume and feed rate
-    predictions = mstore.model.predict(input_data_scaled)
-
-    # Output predictions with segment and subsection indices
-    predicted_rpm_force = pd.DataFrame(predictions, columns=['RPM', 'Force'])
-    predicted_rpm_force['Segment'] = [param['section_idx'] for param in mstore.lost_volumes]
-    predicted_rpm_force['Sub_Section'] = [param['sub_section_idx'] for param in mstore.lost_volumes]
-    
-    # Print results with correct segment and subsection designations
-    print(predicted_rpm_force[['Segment', 'Sub_Section', 'RPM', 'Force']])
-'''
 
 def open_file_dialog():
     # Create a Tkinter window
@@ -130,26 +105,54 @@ def open_file_dialog():
     file_path = filedialog.askopenfilename(title="Select CSV file", filetypes=[("CSV files", "*.csv")])
     return file_path
 
+def logarithmic_model(x):
+    return -0.0629125446945545 * np.log(x) + 1.82752898018992
+
 def main():
-    # Open file dialog to select CSV file
-    file_path_volume = open_file_dialog()
-    if not file_path:
+    #read wear data cumulative(RPM*Force*Time) vs Lost volume in mm^3
+    file_path_wear = open_file_dialog()
+    if not file_path_wear:
         print("No file selected. Exiting.")
         return
 
-    data_volume_predict = load_data(file_path_volume)
-    #data_wear_model = load_data(file_path_wear)
+    data_wear = load_data(file_path_wear)
 
-    target_columns = ['RPM', 'Force']
+    #calculate grind efficiency from lost volume data and replace lost volume column in data_wear with grind_eff
+    #max volume lost as maximum efficiency
+    max_volume_loss = data_wear['Lost_Volume'].max()
+    data_wear['grind_eff'] = (data_wear['Lost_Volume'] / max_volume_loss)
+    # Replace Lost_Volume column with grind_eff
+    data_wear.drop(columns=['Lost_Volume'], inplace=True)
+
+    #fit curve/ML model with RPM*Force*Time as input and grind efficiency (knockdown factor) as output
+    target_columns = ['grind_eff']
 
     # Preprocess the data (train the model using the CSV data, for example)
-    X_train, X_test, y_train, y_test, scaler = preprocess_data(data, target_columns)
+    X_train, X_test, y_train, y_test, scaler = preprocess_data(data_wear, target_columns)
 
-    # Train the SVR model
-    model = train_multi_svr(X_train, y_train)
+    y_train = y_train.values.ravel()
+    y_test = y_test.values.ravel()
 
-    # Optionally, evaluate the model on the test set
-    evaluate_model(model, X_test, y_test)
+    #X_train = np.log(X_train)
+    #X_test = np.log(X_test)
+
+    y_pred = logarithmic_model(X_train)
+
+
+    #Best parameters for SVR: {'C': 0.5, 'epsilon': 0.02, 'gamma': 1.25, 'kernel': 'rbf'}
+    #Mean^2 error Score for the best model: 0.014481130596871603
+    #R^2 Score for the best model: 0.4366693052537124
+
+    mse = mean_squared_error(y_train, y_pred)
+    r2 = r2_score(y_train, y_pred)
+
+    print(f"Mean^2 error Score for the best model: {mse}")
+    print(f"R^2 Score for the best model: {r2}")
+    
+    
+    #read current belt's RPM*Force*time value
+
+    #apply knockdown factor to predicted volume lost to get a more accurate RPM/force profile
 
 
 
