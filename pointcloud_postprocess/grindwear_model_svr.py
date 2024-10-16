@@ -10,7 +10,8 @@ import tkinter as tk
 from tkinter import filedialog
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LinearRegression
-
+import os
+import joblib
 
 def load_data(file_path):
     #Load dataset from a CSV file.
@@ -23,7 +24,7 @@ def preprocess_data(data, target_column):
     y = data[target_column]
 
     # Split data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
     # Feature scaling
     scaler = StandardScaler()
@@ -67,6 +68,16 @@ def evaluate_model_single(model, X_test, y_test):
     # Plot actual vs predicted for grind_eff (single output)
     plt.figure(figsize=(6, 6))
     plt.scatter(y_test, y_pred)
+    
+    # Set axis limits to be the same
+    min_val = min(min(y_test), min(y_pred))
+    max_val = max(max(y_test), max(y_pred))
+    plt.xlim(min_val, max_val)
+    plt.ylim(min_val, max_val)
+    
+    # Plot reference diagonal line for perfect prediction
+    plt.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--')
+
     plt.xlabel("Actual Grind Efficiency")
     plt.ylabel("Predicted Grind Efficiency")
     plt.title("Actual vs Predicted Grind Efficiency")
@@ -83,12 +94,22 @@ def evaluate_model(model, X_test, y_test):
     print(f"Mean Squared Error: {mse}")
     print(f"R^2 Score: {r2}")
 
-    
     # Plot actual vs predicted for each output
     plt.figure(figsize=(12, 6))
+    
     for i, col in enumerate(y_test.columns):
         plt.subplot(1, len(y_test.columns), i + 1)
         plt.scatter(y_test[col], y_pred[:, i])
+        
+        # Set axis limits to be the same
+        min_val = min(min(y_test[col]), min(y_pred[:, i]))
+        max_val = max(max(y_test[col]), max(y_pred[:, i]))
+        plt.xlim(min_val, max_val)
+        plt.ylim(min_val, max_val)
+        
+        # Plot reference diagonal line for perfect prediction
+        plt.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--')
+
         plt.xlabel(f"Actual {col}")
         plt.ylabel(f"Predicted {col}")
         plt.title(f"Actual vs Predicted {col}")
@@ -143,6 +164,39 @@ def visualize_svr_model(best_model, X_train, y_train, scaler):
     plt.title("SVR Model Visualization (Initial Wear vs RPM vs Grind Efficiency)")
     plt.show()
 
+def save_model(model, folder_name='saved_models', filename='svr_model.pkl'):
+    # Get the current working directory
+    current_dir = os.getcwd()
+
+    # Create the full path by joining the current directory with the folder name
+    folder_path = os.path.join(current_dir, folder_name)
+
+    # Create the folder if it does not exist
+    os.makedirs(folder_path, exist_ok=True)
+
+    # Create the full filepath to save the model
+    filepath = os.path.join(folder_path, filename)
+
+    # Save the model to the specified filepath
+    joblib.dump(model, filepath)
+    print(f"Model saved to {filepath}")
+
+def load_model(folder_name='saved_models', filename='svr_model.pkl'):
+    # Get the current working directory
+    current_dir = os.getcwd()
+
+    # Create the full path by joining the current directory with the folder name
+    folder_path = os.path.join(current_dir, folder_name)
+
+    # Create the full filepath to load the model from
+    filepath = os.path.join(folder_path, filename)
+
+    # Load the model
+    model = joblib.load(filepath)
+    print(f"Model loaded from {filepath}")
+    return model
+
+
 def main():
     #read wear data cumulative(RPM*Force*Time) vs Lost volume in mm^3
     file_path_wear = open_file_dialog()
@@ -174,9 +228,9 @@ def main():
 
     # Define the parameter grid
     param_grid = {
-        'C': [0.1, 0.5, 1, 5, 10, 100],
-        'gamma': [0.001, 0.005, 0.01, 0.05, 0.1, 1, 10],
-        'epsilon': [0.001, 0.005, 0.01, 0.05, 0.1, 1],
+        'C': [0.05, 0.1, 0.2, 0.5, 1, 5, 10],
+        'gamma': [0.005, 0.01, 0.02, 0.05, 0.1],
+        'epsilon': [0.005, 0.01, 0.02, 0.05, 0.1],
         'kernel': ['rbf']
     }
 
@@ -193,27 +247,17 @@ def main():
     # Get the best model
     best_model = grid_search.best_estimator_
 
-    visualize_svr_model(best_model, X_train, y_train, scaler)
-
-
-    # Evaluate the model with the test set
-    y_pred = best_model.predict(X_test)
-    mse = mean_squared_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-
-    print(f"Mean^2 Score for the best model: {mse}")
-    print(f"R^2 Score for the best model: {r2}")
-
-
-
-    model = train_single_svr(X_train, y_train, ce=1, gam=0.1, eps=0.01)
+    #visualize_svr_model(best_model, X_train, y_train, scaler)
 
     # Optionally, evaluate the model on the test set
-    evaluate_model_single(model, X_test, y_test)
+    evaluate_model_single(best_model, X_test, y_test)
     
+    # save model
+    #save_model(best_model, folder_name='wear_svr_model', filename='grind_eff_svr_V1.pkl')
+
     #read current belt's RPM*Force*time value
 
-    #apply knockdown factor to predicted volume lost to get a more accurate RPM/force profile
+    #apply knockdown factor to predicted volume lost to get a more accurate RPM/force profile for desired volume
 
 
 
