@@ -22,7 +22,6 @@ def preprocess_data(data, target_column):
     X = data.drop(columns=target_column)
     y = data[target_column]
 
-
     # Split data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
@@ -70,7 +69,7 @@ def train_multi_svr_with_grid_search(X_train, y_train):
 
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
- 
+
     # Evaluate the model with Mean Squared Error and R^2 Score
     mse = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse) 
@@ -201,6 +200,15 @@ def main():
  
     #save model
     save_model(best_model, scaler, folder_name='saved_models', modelname='volume_model_svr_V1.pkl', scalername='volume_scaler_svr_V1.pkl')
+
+    '''
+    latest model with data gathering 2
+    Mean Absolute Error: 3.8609010601716998
+    RMS Error: 5.733461811107904
+    Mean Squared Error: 32.87258433943272
+    R^2 Score: 0.9553432014709704
+    '''
+
 
 if __name__ == "__main__":
     main()

@@ -43,7 +43,7 @@ def train_multi_svr_with_grid_search(X_train, y_train):
     """
     # Define the parameter grid
     param_grid = {
-        'estimator__C': [0.05, 0.1, 0.2, 0.5, 1, 5, 10, 20, 50, 100, 150, 200],
+        'estimator__C': [0.05, 0.1, 0.2, 0.5, 1, 5, 10, 20, 50, 100],
         'estimator__gamma': [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3],
         'estimator__epsilon': [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3],
         'estimator__kernel': ['rbf']
@@ -177,16 +177,17 @@ def main():
     grind_data = grind_data[grind_data['avg_rpm'] >= grind_data['rpm_setpoint'] / 2]
 
     grind_data = grind_data[pd.isna(grind_data['failure_msg'])]
+
     print(grind_data)
 
     #drop unrelated columns
-    related_columns = [ 'grind_time', 'avg_rpm', 'avg_force', 'initial_wear', 'removed_material']
+    related_columns = [ 'grind_time', 'avg_rpm', 'mad_rpm', 'avg_force', 'initial_wear', 'removed_material']
     grind_data = grind_data[related_columns]
 
     
 
     #desired output
-    target_columns = ['avg_force', 'grind_time']
+    target_columns = ['grind_time', 'avg_force', 'mad_rpm']
 
     # Preprocess the data (train the model using the CSV data, for example)
     X_train, X_test, y_train, y_test, scaler = preprocess_data(grind_data, target_columns)
