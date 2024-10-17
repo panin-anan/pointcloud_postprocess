@@ -11,6 +11,7 @@ from tkinter import filedialog
 from sklearn.model_selection import GridSearchCV
 import os
 import joblib
+import random
 
 def load_data(file_path):
     #Load dataset from a CSV file.
@@ -24,7 +25,7 @@ def preprocess_data(data, target_column):
 
 
     # Split data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=np.random.randint(0,100))
 
     # Feature scaling
     scaler = StandardScaler()
@@ -158,6 +159,8 @@ def main():
         return
 
     grind_data = load_data(file_path)
+
+    '''
     #add data from another file
     another_file_path = open_file_dialog()
     if not another_file_path:
@@ -166,9 +169,9 @@ def main():
         additional_data = load_data(another_file_path)
         # Assuming you're concatenating rows or merging based on a common column
         grind_data = pd.concat([grind_data, additional_data], ignore_index=True)
-
+    '''
     # Delete rows where removed_material is less than 12
-    grind_data = grind_data[grind_data['removed_material'] >= 12]
+    grind_data = grind_data[grind_data['removed_material'] >= 5]
 
     # Filter out points which have mad of more than 1000
     grind_data = grind_data[grind_data['mad_rpm'] <= 1000]
