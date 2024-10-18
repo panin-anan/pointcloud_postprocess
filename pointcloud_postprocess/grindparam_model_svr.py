@@ -23,7 +23,6 @@ def preprocess_data(data, target_column):
     X = data.drop(columns=target_column)
     y = data[target_column]
 
-
     # Split data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=np.random.randint(0,100))
 
@@ -47,7 +46,7 @@ def train_multi_svr_with_grid_search(X_train, y_train):
         'estimator__C': [0.05, 0.1, 0.2, 0.5, 1, 5, 10, 20, 50, 100],
         'estimator__gamma': [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3],
         'estimator__epsilon': [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3],
-        'estimator__kernel': ['rbf']
+        'estimator__kernel': ['rbf', 'sigmoid']
     }
 
 
@@ -71,17 +70,6 @@ def train_multi_svr_with_grid_search(X_train, y_train):
 
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
- 
-    # Evaluate the model with Mean Squared Error and R^2 Score
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = np.sqrt(mse) 
-    mean_abs = mean_absolute_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-
-    print(f"Mean Absolute Error: {mean_abs}")
-    print(f"RMS Error: {rmse}")
-    print(f"Mean Squared Error: {mse}")
-    print(f"R^2 Score: {r2}")
 
     # Plot actual vs predicted for each output
     plt.figure(figsize=(12, 6))
@@ -90,6 +78,18 @@ def evaluate_model(model, X_test, y_test):
         plt.subplot(1, len(y_test.columns), i + 1)
         plt.scatter(y_test[col], y_pred[:, i])
         
+        # Evaluate the model with Mean Squared Error and R^2 Score
+        mse = mean_squared_error(y_test[col], y_pred[:, i])
+        rmse = np.sqrt(mse) 
+        mean_abs = mean_absolute_error(y_test[col], y_pred[:, i])
+        r2 = r2_score(y_test[col], y_pred[:, i])
+
+        print(f"Column number: {i}")
+        print(f"Mean Absolute Error: {mean_abs}")
+        print(f"RMS Error: {rmse}")
+        print(f"Mean Squared Error: {mse}")
+        print(f"R^2 Score: {r2}")
+
         # Set axis limits to be the same
         min_val = min(min(y_test[col]), min(y_pred[:, i]))
         max_val = max(max(y_test[col]), max(y_pred[:, i]))
@@ -184,13 +184,13 @@ def main():
     print(grind_data)
 
     #drop unrelated columns
-    related_columns = [ 'grind_time', 'avg_rpm', 'mad_rpm', 'avg_force', 'initial_wear', 'removed_material']
+    related_columns = [ 'grind_time', 'avg_rpm', 'avg_force', 'initial_wear', 'removed_material']
     grind_data = grind_data[related_columns]
 
     
 
     #desired output
-    target_columns = ['grind_time', 'avg_force', 'mad_rpm']
+    target_columns = ['grind_time', 'avg_force']
 
     # Preprocess the data (train the model using the CSV data, for example)
     X_train, X_test, y_train, y_test, scaler = preprocess_data(grind_data, target_columns)

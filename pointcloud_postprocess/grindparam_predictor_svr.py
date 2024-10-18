@@ -171,9 +171,9 @@ def main():
         volume_scaler = load_scaler(use_fixed_path=False)
 
     #read current belt's 'initial wear', 'removed_volume', 'RPM' and predict 'Force' and 'grind_time'
-    initial_wear = 20000000           
-    target_volume = 60      # in mm^3
-    avg_rpm = 9500
+    initial_wear = 1000000           
+    target_volume = 10      # in mm^3
+    avg_rpm = 10000
 
     # Create a DataFrame to store the input data
     input_grind_data_dict = {
@@ -190,12 +190,13 @@ def main():
     # Assuming the model predicts two outputs: 'Force' and 'grind_time'
     predicted_grind_time = predicted_force_time[0, 0]
     predicted_force = predicted_force_time[0, 1]
-    predicted_mad_rpm = predicted_force_time[0, 2]
+    #predicted_mad_rpm = predicted_force_time[0, 2]
 
     # Print the predictions
-    print(f"Predicted Force: {predicted_force} N, Predicted Grind Time: {predicted_grind_time}s, Predicted mad_rpm: {predicted_mad_rpm}")
+    print(f"Predicted Force: {predicted_force} N, Predicted Grind Time: {predicted_grind_time}s")
 
 
+    # TODO add decision rule: for low volume use the current model, for high volume can scale volume lost with time
     # TODO use predicted force and time to input into volume_model_svr which predict volume_lost
     # Predict volume
     predicted_volume = predict_volume(volume_model, volume_scaler, initial_wear, avg_rpm, predicted_force, predicted_grind_time)
@@ -207,6 +208,7 @@ def main():
 
     adjusted_time, predicted_volume = adjust_time_with_volume_model(volume_model, volume_scaler, initial_wear, avg_rpm, predicted_grind_time, adjusted_force, predicted_volume, target_volume)
     #print(f"RPM: {avg_rpm}, Force: {predicted_force}N, Grind Time: {adjusted_time} sec --> Predicted Removed Volume: {predicted_volume[0]}")
+
 
 
 if __name__ == "__main__":
