@@ -278,7 +278,7 @@ class MeshApp:
             lost_volume = area * fixed_thickness
             print(f"Lost Volume: {lost_volume} m^3")
             
-            o3d.visualization.draw_geometries([self.changed_mesh, bbox_lineset, axes])
+            #o3d.visualization.draw_geometries([self.changed_mesh, bbox_lineset, axes])
 
         changed_mesh_global = transform_to_global_coordinates(self.changed_mesh, mesh1_pca_basis, mesh1_plane_centroid) 
         o3d.visualization.draw_geometries([changed_mesh_global, self.mesh2])
