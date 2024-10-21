@@ -23,7 +23,8 @@ from mesh_calculations import (
     transform_to_global_coordinates,
     sort_plate_cluster,
     compute_convex_hull_area_xy,
-    sort_plate_cluster_centroid
+    sort_plate_cluster_centroid,
+    create_bbox_from_pcl_axis_aligned
 )
 
 
@@ -229,7 +230,8 @@ class MeshApp:
         self.mesh2 = sort_plate_cluster(self.mesh2, use_downsampling=True)
         #self.mesh1 = sort_plate_cluster_centroid(self.mesh1, distance_threshold=0.03)
         #self.mesh2 = sort_plate_cluster_centroid(self.mesh2, distance_threshold=0.03)
-        o3d.visualization.draw_geometries([self.mesh1])
+        axes_mesh1 = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=mesh1_plane_centroid)
+        o3d.visualization.draw_geometries([self.mesh1, axes_mesh1])
         # Check alignment
         cos_angle = np.dot(mesh1_pca_basis[2], mesh2_pca_basis[2]) / (np.linalg.norm(mesh1_pca_basis[2]) * np.linalg.norm(mesh2_pca_basis[2]))
         angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) * 180 / np.pi
@@ -261,14 +263,14 @@ class MeshApp:
         self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.002, min_points=20, remove_outliers=True)
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
 
-
+       
         # Check if there are any missing points detected
         if self.changed_mesh is None or len(np.asarray(self.changed_mesh.points)) == 0:
             print("No detectable difference between point clouds. Lost volume is 0.")
             lost_volume = 0.0
         else:
             #area from bounding box
-            width, height, area, bbox_lineset, axes = create_bbox_from_pcl(self.changed_mesh)
+            width, height, area, bbox_lineset, axes = create_bbox_from_pcl_axis_aligned(self.changed_mesh)
             area, hull_pcd, line_set = compute_convex_hull_area_xy(self.changed_mesh)
 
             print(f"bbox width: {width} m, height: {height} m")
@@ -276,10 +278,9 @@ class MeshApp:
             lost_volume = area * fixed_thickness
             print(f"Lost Volume: {lost_volume} m^3")
             
-            o3d.visualization.draw_geometries([self.changed_mesh, line_set, axes])
+            o3d.visualization.draw_geometries([self.changed_mesh, bbox_lineset, axes])
 
         changed_mesh_global = transform_to_global_coordinates(self.changed_mesh, mesh1_pca_basis, mesh1_plane_centroid) 
-
         o3d.visualization.draw_geometries([changed_mesh_global, self.mesh2])
 
         print(f"Estimated volume of lost material: {lost_volume} m^3")

@@ -501,6 +501,37 @@ def create_bbox_from_pcl(pcl):
 
     return width, height, area, bbox_lineset, axes
 
+def create_bbox_from_pcl_axis_aligned(pcl):
+    # Step 1: Convert point cloud to numpy array
+    points = np.asarray(pcl.points)
+
+    # Step 2: Since data is planar, project points to a 2D plane (ignore one axis, e.g., Z-axis)
+    xy_points = points[:, 0:2]  # Take X and Y coordinates (planar in XY plane)
+
+    # Step 3: Get the 2D Axis-Aligned Bounding Box (AABB) for the planar points (XY plane)
+    min_bound = np.min(xy_points, axis=0)
+    max_bound = np.max(xy_points, axis=0)
+
+    bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound=np.append(min_bound, 0), 
+                                               max_bound=np.append(max_bound, 0))
+    bbox = bbox.get_minimal_oriented_bounding_box()
+
+    width = max_bound[0] - min_bound[0]
+    height = max_bound[1] - min_bound[1]
+    area = width * height
+
+    centroid = bbox.get_center()
+    # Step 7: Create a small sphere at the centroid for visualization
+    axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.001, origin=[0,0,0])
+    axes.translate(centroid)
+    o3d.visualization.draw_geometries([pcl, bbox, axes],
+                                      zoom=0.5,
+                                      front=[-1, 0, 0],
+                                      lookat=centroid,
+                                      up=[0, 0, 1])
+
+    return width, height, area, bbox, axes
+
 def compute_convex_hull_area_xy(point_cloud):
     # Step 1: Convert point cloud to numpy array
     points = np.asarray(point_cloud.points)
