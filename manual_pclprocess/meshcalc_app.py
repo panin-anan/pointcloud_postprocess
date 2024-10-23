@@ -224,6 +224,8 @@ class MeshApp:
 
         #filter point by plane and project onto it
         mesh1_beforefilter = self.mesh1
+
+        #TODO flip RANSAC plane if not aligned with global stuff
         self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
         self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
         self.mesh1 = sort_plate_cluster(self.mesh1, use_downsampling=True)
@@ -281,7 +283,7 @@ class MeshApp:
             #o3d.visualization.draw_geometries([self.changed_mesh, bbox_lineset, axes])
 
         changed_mesh_global = transform_to_global_coordinates(self.changed_mesh, mesh1_pca_basis, mesh1_plane_centroid) 
-        o3d.visualization.draw_geometries([changed_mesh_global, self.mesh2])
+        #o3d.visualization.draw_geometries([changed_mesh_global, bbox_lineset, self.mesh2])
 
         print(f"Estimated volume of lost material: {lost_volume} m^3")
         #print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")

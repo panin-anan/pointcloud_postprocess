@@ -506,14 +506,16 @@ def create_bbox_from_pcl_axis_aligned(pcl):
     # Step 1: Convert point cloud to numpy array
     points = np.asarray(pcl.points)
     dummy_pcl = copy.deepcopy(pcl)
+    
     # Step 2: Initialize variables to store the minimum width and corresponding bounding box
     min_width = float('inf')
-    best_bbox = None
+    min_height = float('inf')
+    best_bbox_corners = None
     best_axes = None
     best_angle = 0
     
     # Step 3: Iterate over angles to find the orientation with minimal bounding box width
-    for angle in np.linspace(0, np.pi, 100):  # 100 steps from 0 to 180 degrees
+    for angle in np.linspace(0, 2*np.pi, 100):  # 100 steps from 0 to 360 degrees
         # Step 4: Create the 2D rotation matrix around the Z-axis
         rotation_matrix = np.array([
             [np.cos(angle), -np.sin(angle)],
@@ -535,12 +537,19 @@ def create_bbox_from_pcl_axis_aligned(pcl):
         # Step 7: If this rotation gives a smaller width, update the minimum width and bbox
         if width < min_width:
             min_width = width
-            min_bound_3d = np.append(min_bound, 0)  # Append Z=0
-            max_bound_3d = np.append(max_bound, 0)  # Append Z=0
-            bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound=min_bound_3d, max_bound=max_bound_3d)
-            best_bbox = bbox
-            best_angle = angle
+            min_height = height
+            min_bound_3d = np.array([min_bound[0], min_bound[1], np.mean(points[:, 2])])  # Set Z at the centroid
+            max_bound_3d = np.array([max_bound[0], max_bound[1], np.mean(points[:, 2])])  # Set Z at the centroid
             
+            # Define the bounding box corners in 3D
+            best_bbox_corners = np.array([
+                [min_bound_3d[0], min_bound_3d[1], min_bound_3d[2]],  # Min XY point
+                [max_bound_3d[0], min_bound_3d[1], min_bound_3d[2]],  # Max X, Min Y
+                [max_bound_3d[0], max_bound_3d[1], min_bound_3d[2]],  # Max XY
+                [min_bound_3d[0], max_bound_3d[1], min_bound_3d[2]],  # Min X, Max Y
+            ])
+            best_angle = angle
+
     # Step 8: Rotate the point cloud back to the orientation with the smallest width
     final_rotation_matrix = np.array([
         [np.cos(best_angle), -np.sin(best_angle), 0],
@@ -549,21 +558,33 @@ def create_bbox_from_pcl_axis_aligned(pcl):
     ])
     rotated_pcl = dummy_pcl.rotate(final_rotation_matrix, center=(0, 0, 0))
     
-    # Get the centroid and visualize the bounding box with the best fit
-    centroid = best_bbox.get_center()
-    
-    # Create a small sphere at the centroid for visualization
+    # Step 9: Create a LineSet for the bounding box edges
+    bbox_lines = [
+        [0, 1], [1, 2], [2, 3], [3, 0],  # Bounding box edges
+    ]
+    bbox_lineset = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(best_bbox_corners),
+        lines=o3d.utility.Vector2iVector(bbox_lines)
+    )
+    bbox_lineset.paint_uniform_color([1, 0, 0])  # Red for the bounding box
+
+    # Step 10: Create a small coordinate frame at the centroid for visualization
+    centroid = np.mean(best_bbox_corners, axis=0)  # Get the centroid of the bounding box
     axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.001, origin=[0, 0, 0])
     axes.translate(centroid)
-    o3d.visualization.draw_geometries([rotated_pcl, best_bbox, axes],
+
+    # Step 11: Visualize the result
+    o3d.visualization.draw_geometries([rotated_pcl, bbox_lineset, axes],
                                       zoom=0.5,
                                       front=[-1, 0, 0],
                                       lookat=centroid,
                                       up=[0, 0, 1])
 
-    area = min_width * height
+    # Step 12: Calculate the area of the bounding box
+    area = min_width * min_height
+    
     # Return the best bbox parameters
-    return min_width, height, area, best_bbox, axes
+    return min_width, min_height, area, bbox_lineset, axes
 
 
 def compute_convex_hull_area_xy(point_cloud):
