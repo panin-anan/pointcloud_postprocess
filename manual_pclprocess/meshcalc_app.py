@@ -262,7 +262,7 @@ class MeshApp:
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local, axes])
         # after sorting
-        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.002, min_points=20, remove_outliers=True)
+        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.0003, min_points=20, remove_outliers=True)
         o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
 
        

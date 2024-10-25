@@ -251,7 +251,7 @@ def project_points_onto_plane(points, plane_normal, plane_point):
 
     return projected_points
 
-def filter_project_points_by_plane(point_cloud, distance_threshold=0.001):
+def filter_project_points_by_plane(point_cloud, distance_threshold=0.0008):
     # Fit a plane to the point cloud using RANSAC
     plane_model, inliers = point_cloud.segment_plane(distance_threshold=distance_threshold,
                                                      ransac_n=3,
