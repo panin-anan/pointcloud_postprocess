@@ -274,10 +274,36 @@ def filter_project_points_by_plane(point_cloud, distance_threshold=0.0008):
     # Color the inlier points (on the original RANSAC plane) in green
     inlier_cloud.paint_uniform_color([0, 1, 0])  # Color inlier points in green
 
-    # Visualize both the original point cloud, inliers, and projected points
-    #o3d.visualization.draw_geometries([projected_pcd])
+    # Visualize both the inliers, projected points, and nearby points
+    #o3d.visualization.draw_geometries([projected_pcd, inlier_cloud, nearby_cloud])
 
     return projected_pcd, pca_basis, plane_centroid
+
+def filter_points_by_plane_nearbycloud(point_cloud, distance_threshold=0.0008, nearby_distance=0.01):
+    # Fit a plane to the point cloud using RANSAC
+    plane_model, inliers = point_cloud.segment_plane(distance_threshold=distance_threshold,
+                                                     ransac_n=3,
+                                                     num_iterations=1000)
+    [a, b, c, d] = plane_model
+    
+    # Select points that are close to the plane (within the threshold)
+    inlier_cloud = point_cloud.select_by_index(inliers)
+    pca_basis, plane_centroid = fit_plane_to_pcd_pca(inlier_cloud)
+    points = np.asarray(inlier_cloud.points)
+
+    # Select additional points within the specified nearby distance to the plane
+    distances = np.abs(np.dot(np.asarray(point_cloud.points), [a, b, c]) + d) / np.linalg.norm([a, b, c])
+    nearby_indices = np.where(distances <= nearby_distance)[0]
+    nearby_cloud = point_cloud.select_by_index(nearby_indices)
+
+    # Color the inlier points (on the original RANSAC plane) in green
+    inlier_cloud.paint_uniform_color([0, 1, 0])  # Color inlier points in green
+    nearby_cloud.paint_uniform_color([0, 0, 1])  # Color nearby points in blue
+
+    # Visualize both the inliers, projected points, and nearby points
+    #o3d.visualization.draw_geometries([projected_pcd, inlier_cloud, nearby_cloud])
+
+    return nearby_cloud, pca_basis, plane_centroid
 
 def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=True):
     # Step 1: Segment point cloud into clusters using DBSCAN
@@ -316,45 +342,41 @@ def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=Tru
 
     return combined_mesh
 
-'''
-def filter_changedpointson_mesh(mesh_before, mesh_after, threshold=0.001, neighbor_threshold=5):
+
+def filter_changedpoints_onNormaxis(mesh_before, mesh_after, x_threshold=0.0003, y_threshold=0.0001, neighbor_threshold=5):
     # Convert points from Open3D mesh to numpy arrays
     points_before = np.asarray(mesh_before.points)
     points_after = np.asarray(mesh_after.points)
-
-    # Create KDTree for the points in mesh_after
+    
+    # Create a KDTree for the points in mesh_after
     kdtree_after = cKDTree(points_after)
     
     # Query KDTree to find distances and indices of nearest neighbors in mesh_after for points in mesh_before
-    distances, indices = kdtree_after.query(points_before)
+    _, indices = kdtree_after.query(points_before)
     
-    # Filter points in mesh_before that are not within the threshold distance in mesh_after
-    missing_indices = np.where(distances >= threshold)[0]
-    missing_vertices = points_before[missing_indices]
+    # Get the y and z coordinates from both meshes
+    x_before = points_before[:, 0]
+    y_before = points_before[:, 1]
+    x_after = points_after[indices, 0]  # Nearest neighbors' x-coordinates
+    y_after = points_after[indices, 1]  # Nearest neighbors' y-coordinates
     
-    # Create a new point cloud with points that are missing in mesh_after
+    # Calculate the absolute differences in the y and z coordinates
+    x_diff = np.abs(x_before - x_after)
+    y_diff = np.abs(y_before - y_after)
+    
+    # Create a mask to find points in mesh_before where either the y or z axis difference
+    # with the corresponding point in mesh_after exceeds the respective thresholds
+    xy_diff_mask = (x_diff >= x_threshold) | (y_diff >= y_threshold)
+    
+    # Select the points from mesh_before where the y or z axis difference is larger than the threshold
+    missing_points = points_before[xy_diff_mask]
+    
+    # Create a new point cloud with the points that have significant y or z axis differences
     mesh_missing = o3d.geometry.PointCloud()
-    mesh_missing.points = o3d.utility.Vector3dVector(missing_vertices)
+    mesh_missing.points = o3d.utility.Vector3dVector(missing_points)
     
-    # Now, filter out points in mesh_missing that have fewer than 20 neighbors within the threshold distance
-    missing_vertices_np = np.asarray(mesh_missing.points)
-    
-    # Create KDTree for the points in mesh_missing
-    kdtree_missing = cKDTree(missing_vertices_np)
-    
-    # Query neighbors within the threshold distance for each point in mesh_missing
-    neighbor_counts = kdtree_missing.query_ball_point(missing_vertices_np, r=threshold)
-    
-    # Only keep points that have at least 20 neighbors in their vicinity
-    valid_indices = [i for i, neighbors in enumerate(neighbor_counts) if len(neighbors) >= neighbor_threshold]
-    valid_vertices = missing_vertices_np[valid_indices]
-    
-    # Create a new point cloud with the filtered points
-    filtered_mesh_missing = o3d.geometry.PointCloud()
-    filtered_mesh_missing.points = o3d.utility.Vector3dVector(valid_vertices)
-    
-    return filtered_mesh_missing
-'''
+    return mesh_missing
+
 
 def filter_missing_points_by_xy(mesh_before, mesh_after, x_threshold=0.0003, y_threshold=0.0001):
     # Convert points from Open3D mesh to numpy arrays

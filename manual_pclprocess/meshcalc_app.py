@@ -24,7 +24,9 @@ from mesh_calculations import (
     sort_plate_cluster,
     compute_convex_hull_area_xy,
     sort_plate_cluster_centroid,
-    create_bbox_from_pcl_axis_aligned
+    create_bbox_from_pcl_axis_aligned,
+    filter_points_by_plane_nearbycloud,
+    filter_changedpoints_onNormaxis
 )
 
 
@@ -226,8 +228,8 @@ class MeshApp:
         mesh1_beforefilter = self.mesh1
 
         #TODO flip RANSAC plane if not aligned with global stuff
-        self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_project_points_by_plane(self.mesh1, distance_threshold=0.0006)
-        self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_project_points_by_plane(self.mesh2, distance_threshold=0.0006)
+        self.mesh1, mesh1_pca_basis, mesh1_plane_centroid = filter_points_by_plane_nearbycloud(self.mesh1, distance_threshold=0.0006, nearby_distance=0.008)
+        self.mesh2, mesh2_pca_basis, mesh2_plane_centroid = filter_points_by_plane_nearbycloud(self.mesh2, distance_threshold=0.0006, nearby_distance=0.008)
         self.mesh1 = sort_plate_cluster(self.mesh1, use_downsampling=True)
         self.mesh2 = sort_plate_cluster(self.mesh2, use_downsampling=True)
         #self.mesh1 = sort_plate_cluster_centroid(self.mesh1, distance_threshold=0.03)
@@ -240,30 +242,32 @@ class MeshApp:
         if abs(angle) > 2:     #2 degree misalignment throw error
             raise ValueError(f"Plane normals differ too much: {angle} degrees")
 
-        projected_points_mesh2 = project_points_onto_plane(np.asarray(self.mesh2.points), mesh1_pca_basis[2], mesh1_plane_centroid)
-        self.mesh2.points = o3d.utility.Vector3dVector(projected_points_mesh2)
+        #mesh pcl
+        
+
+
+
+
+
+        '''
+        #changed point partition
 
         self.mesh1 = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color
         self.mesh2 = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
         o3d.visualization.draw_geometries([self.mesh1, self.mesh2])
 
-        #rotate points to yz plane
-        self.mesh1_local = transform_to_local_pca_coordinates(self.mesh1, mesh1_pca_basis, mesh1_plane_centroid)
-        self.mesh2_local = transform_to_local_pca_coordinates(self.mesh2, mesh1_pca_basis, mesh1_plane_centroid)
-  
-
-        self.mesh1_local = self.mesh1_local.paint_uniform_color([1, 0, 0])  # Red color
-        self.mesh2_local = self.mesh2_local.paint_uniform_color([0, 1, 0])  # Green color
-
-        #self.changed_mesh = filter_changedpointson_mesh(self.mesh1, self.mesh2, threshold=0.0003, neighbor_threshold=10)
         axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
-        self.changed_mesh = filter_missing_points_by_xy(self.mesh1_local, self.mesh2_local, x_threshold=0.00012, y_threshold=0.00008)
+        self.changed_mesh = filter_changedpoints_onNormaxis(self.mesh1, self.mesh2, x_threshold=0.0001, y_threshold=0.1, neighbor_threshold=1)
         # after filter difference
         self.changed_mesh.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
-        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local, axes])
+        changed_mesh_points = np.asarray(self.changed_mesh.points)
+        mean_point = changed_mesh_points.mean(axis=0)
+        axes.translate(mean_point)
+
+        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2, axes])
         # after sorting
-        self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.0003, min_points=20, remove_outliers=True)
-        o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2_local])
+        #self.changed_mesh = sort_largest_cluster(self.changed_mesh, eps=0.0003, min_points=20, remove_outliers=True)
+        #o3d.visualization.draw_geometries([self.changed_mesh, self.mesh2])
 
        
         # Check if there are any missing points detected
@@ -279,15 +283,9 @@ class MeshApp:
             fixed_thickness = 0.002 # in m
             lost_volume = area * fixed_thickness
             print(f"Lost Volume: {lost_volume} m^3")
-            
-            #o3d.visualization.draw_geometries([self.changed_mesh, bbox_lineset, axes])
-
-        changed_mesh_global = transform_to_global_coordinates(self.changed_mesh, mesh1_pca_basis, mesh1_plane_centroid) 
-        #o3d.visualization.draw_geometries([changed_mesh_global, bbox_lineset, self.mesh2])
-
         print(f"Estimated volume of lost material: {lost_volume} m^3")
-        #print(f"Estimated grinded thickness mesh method: {lost_thickness} mm")
-        #print(f"Estimated grinded thickness avg method: {avg_diff} mm")
+        '''
+
 
         print(f"Done computing")
 
