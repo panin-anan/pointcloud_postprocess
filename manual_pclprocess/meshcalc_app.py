@@ -28,7 +28,8 @@ from mesh_calculations import (
     filter_points_by_plane_nearbycloud,
     filter_changedpoints_onNormaxis,
     shift_y_fordiagonal,
-    calculate_volume_with_projected_boundaries
+    calculate_volume_with_projected_boundaries_convex,
+    calculate_volume_with_projected_boundaries_concave
 )
 
 
@@ -254,28 +255,26 @@ class MeshApp:
 
 
         axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
-        self.changed_mesh1, self.changed_mesh2 = filter_changedpoints_onNormaxis(self.mesh1, self.mesh2, x_threshold=0.0002, y_threshold=0.1, neighbor_threshold=5)
+        self.changed_mesh1, self.changed_mesh2 = filter_changedpoints_onNormaxis(self.mesh1, self.mesh2, x_threshold=0.0002, y_threshold=0.1, x_threshold_after=0.00015, neighbor_threshold=5)
         # after sorting
         self.changed_mesh1 = sort_largest_cluster(self.changed_mesh1, eps=0.0003, min_points=20, remove_outliers=True)
-        self.changed_mesh2 = sort_largest_cluster(self.changed_mesh2, eps=0.0003, min_points=20, remove_outliers=True)
+        self.changed_mesh2 = sort_largest_cluster(self.changed_mesh2, eps=0.0002, min_points=20, remove_outliers=True)
         self.changed_mesh1.paint_uniform_color([0, 0, 1])  # Blue color for changed surface mesh
         self.changed_mesh2.paint_uniform_color([1, 0, 0])  # Red color
-        o3d.visualization.draw_geometries([self.changed_mesh1, self.changed_mesh2])
-        
+
         # after filter difference
         changed_mesh_points = np.asarray(self.changed_mesh1.points)
         mean_point = changed_mesh_points.mean(axis=0)
         axes.translate(mean_point)
+        o3d.visualization.draw_geometries([self.changed_mesh1, self.changed_mesh2, axes])
+    
 
-        o3d.visualization.draw_geometries([self.changed_mesh1])
-        o3d.visualization.draw_geometries([self.changed_mesh2])
-
-
+        '''
         alpha_shape = 0.03
         self.mesh1_trimesh = create_mesh_from_point_cloud(self.changed_mesh1, alpha = alpha_shape)
         self.mesh2_trimesh = create_mesh_from_point_cloud(self.changed_mesh2, alpha = alpha_shape)
         o3d.visualization.draw_geometries([self.mesh1_trimesh, self.mesh2_trimesh])
-
+        '''
 
 
         # Check if there are any missing points detected
@@ -284,7 +283,7 @@ class MeshApp:
             lost_volume = 0.0
         else:
             #area from bounding box
-            lost_volume = calculate_volume_with_projected_boundaries(self.changed_mesh1, self.changed_mesh2, num_slices=10)
+            lost_volume = calculate_volume_with_projected_boundaries_concave(self.changed_mesh1, self.changed_mesh2, num_slices=10, concave_resolution=0.002)
             print(f"Lost Volume: {lost_volume} m^3")        
 
 

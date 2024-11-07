@@ -10,6 +10,7 @@ from scipy.spatial import ConvexHull
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import copy
+from concave_hull import concave_hull, concave_hull_indexes
 
 def load_mesh(mesh_number):
     path = filedialog.askopenfilename(title=f"Select the mesh file for Mesh {mesh_number}",
@@ -260,7 +261,7 @@ def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=Tru
     return combined_mesh
 
 
-def filter_changedpoints_onNormaxis(mesh_before, mesh_after, x_threshold=0.0003, y_threshold=0.0001, neighbor_threshold=5):
+def filter_changedpoints_onNormaxis(mesh_before, mesh_after, x_threshold=0.0003, y_threshold=0.0001, x_threshold_after=0.00001, neighbor_threshold=5):
     # Convert points from Open3D mesh to numpy arrays
     points_before = np.asarray(mesh_before.points)
     points_after = np.asarray(mesh_after.points)
@@ -297,7 +298,7 @@ def filter_changedpoints_onNormaxis(mesh_before, mesh_after, x_threshold=0.0003,
     distances, _ = kdtree_missing_x.query(points_after[:, [0]])
     
     # Mask to filter points in mesh_after that are outside the x_threshold distance in x-axis
-    change_mask = distances > x_threshold
+    change_mask = distances > x_threshold_after
     changed_points = points_after[change_mask]
     
     # Create mesh_change with points in mesh_after that are outside the x-axis threshold distance from mesh_missing
@@ -572,6 +573,34 @@ def compute_convex_hull_area_xy(point_cloud):
 
     return area, hull_pcd, line_set
 
+def compute_concave_hull_area_xy(point_cloud, hull_convex_2d, concave_resolution=0.0005):
+    points = np.asarray(point_cloud.points)
+    #plt.scatter(points[:, 0], points[:, 1], s=0.5, color='b', alpha=0.5)
+    idxes = concave_hull_indexes(
+        points[:, :2],
+        length_threshold=concave_resolution,
+    )
+    # you can get coordinates by `points[idxes]`
+    assert np.all(points[idxes] == concave_hull(points, length_threshold=concave_resolution))
+
+    for f, t in zip(idxes[:-1], idxes[1:]):  # noqa
+        seg = points[[f, t]]
+        #plt.plot(seg[:, 0], seg[:, 1], "r-", alpha=0.5)
+    # plt.savefig('hull.png')
+    #plt.gca().set_aspect('equal', adjustable='box')
+    #plt.show()
+
+    # Calculate the area using the Shoelace formula
+    hull_points = points[idxes]
+    x = hull_points[:, 0]
+    y = hull_points[:, 1]
+    area = 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+
+    hull_cloud = o3d.geometry.PointCloud()
+    hull_cloud.points = o3d.utility.Vector3dVector(hull_points)
+
+    return area, hull_cloud
+
 def sort_plate_cluster(pcd, eps=0.0005, min_points=20, remove_outliers=False, use_downsampling=False, downsample_voxel_size=0.0002):
     if use_downsampling and downsample_voxel_size > 0:
         downsampled_pcd = pcd.voxel_down_sample(voxel_size=downsample_voxel_size)
@@ -706,9 +735,9 @@ def transform_to_global_coordinates(local_pcl, pca_basis, centroid):
     return global_pcl
 
 
-def calculate_volume_with_projected_boundaries(pcd1, pcd2, num_slices=10):
+def calculate_volume_with_projected_boundaries_convex(pcd1, pcd2, num_slices=3):
     """
-    Calculate the volume between two irregular surfaces by integrating cross-sectional areas.
+    Calculate the volume between two irregular surfaces by integrating cross-sectional areas along the y-axis.
     """
     points1 = np.asarray(pcd1.points)
     points2 = np.asarray(pcd2.points)
@@ -721,68 +750,134 @@ def calculate_volume_with_projected_boundaries(pcd1, pcd2, num_slices=10):
     z_min = min(points1[:, 2].min(), points2[:, 2].min())
     z_max = max(points1[:, 2].max(), points2[:, 2].max())
     
-    # Calculate the area of the yz-plane bounding box
-    bounding_area_yz = (y_max - y_min) * (z_max - z_min)
+    # Calculate the area of the xz-plane bounding box
+    bounding_area_xz = (x_max - x_min) * (z_max - z_min)
     
-    # Define x-axis slices
-    x_slices = np.linspace(x_min, x_max, num_slices)
+    # Define y-axis slices
+    y_slices = np.linspace(y_min, y_max, num_slices)
     total_volume = 0
 
-    fig, ax = plt.subplots(1, num_slices, figsize=(20, 5))
-    
     # Loop through each slice position
-    for i in range(len(x_slices) - 1):
-        x_start, x_end = x_slices[i], x_slices[i + 1]
-        slice_thickness = x_end - x_start
+    for i in range(len(y_slices) - 1):
+        y_start, y_end = y_slices[i], y_slices[i + 1]
+        slice_thickness = y_end - y_start
+        y_mid = (y_start + y_end) / 2 
 
-        # Filter points within the current x-slice for each surface
-        slice_points1 = points1[(points1[:, 0] >= x_start) & (points1[:, 0] < x_end)]
-        slice_points2 = points2[(points2[:, 0] >= x_start) & (points2[:, 0] < x_end)]
-
-        if len(slice_points1) == 0 and len(slice_points2) == 0:
-            # If no points in this slice, assume full bounding area is occupied
-            slice_volume = bounding_area_yz * slice_thickness
+        # Filter points within the current y-slice for each surface
+        slice_points1 = points1[(points1[:, 1] >= y_start) & (points1[:, 1] < y_end)]
+        slice_points2 = points2[(points2[:, 1] >= y_start) & (points2[:, 1] < y_end)]
+        
+        # Combine points from both surfaces for this slice
+        combined_slice_points = np.vstack((slice_points1, slice_points2))
+        
+        if len(combined_slice_points) >= 3:
+            # Project combined points onto the xz-plane at y_mid
+            xz_combined_points = np.column_stack((combined_slice_points[:, 0], np.full(combined_slice_points.shape[0], y_mid), combined_slice_points[:, 2]))
+            
+            # Calculate the Convex Hull for the combined set
+            hull = ConvexHull(xz_combined_points[:, [0, 2]])  # Use only x and z coordinates
+            cross_sectional_area = hull.volume
+            
+            # Visualize Convex Hull in Open3D
+            hull_points = o3d.geometry.PointCloud()
+            hull_points.points = o3d.utility.Vector3dVector(xz_combined_points)
+            
+            hull_lines = [[hull.vertices[j], hull.vertices[(j + 1) % len(hull.vertices)]] for j in range(len(hull.vertices))]
+            
+            hull_line_set = o3d.geometry.LineSet()
+            hull_line_set.points = hull_points.points
+            hull_line_set.lines = o3d.utility.Vector2iVector(hull_lines)
+            
+            # Display the convex hull with Open3D
+            o3d.visualization.draw_geometries([hull_points, hull_line_set], window_name=f"Slice {i+1} (y_mid = {y_mid:.2f})")
+            
         else:
-            # Project points onto the yz-plane
-            yz_points1 = slice_points1[:, 1:]
-            yz_points2 = slice_points2[:, 1:]
-            
-            # Plot slice points and Convex Hulls
-            ax[i].scatter(yz_points1[:, 0], yz_points1[:, 1], color='red', s=10, label='Surface 1')
-            ax[i].scatter(yz_points2[:, 0], yz_points2[:, 1], color='green', s=10, label='Surface 2')
-            
-            # Calculate the area of each cross-section using Convex Hulls if points are available
-            if len(yz_points1) >= 3 and len(yz_points2) >= 3:
-                hull1 = ConvexHull(yz_points1)
-                hull2 = ConvexHull(yz_points2)
-                cross_sectional_area = np.abs(hull1.volume - hull2.volume)
-                
-                # Plot Convex Hulls
-                for simplex in hull1.simplices:
-                    ax[i].plot(yz_points1[simplex, 0], yz_points1[simplex, 1], 'r-')
-                for simplex in hull2.simplices:
-                    ax[i].plot(yz_points2[simplex, 0], yz_points2[simplex, 1], 'g-')
-            else:
-                # Use the bounding area if there are insufficient points to form a polygon
-                cross_sectional_area = bounding_area_yz
+            # Use the bounding area if there are insufficient points to form a polygon
+            cross_sectional_area = bounding_area_xz
 
-            # Estimate volume for this slice
-            slice_volume = cross_sectional_area * slice_thickness
+        # Estimate volume for this slice
+        slice_volume = cross_sectional_area * slice_thickness
 
         # Add the slice volume to the total volume
         total_volume += slice_volume
 
-        # Add title and legend
-        ax[i].set_title(f'Slice {i+1}\n x = {x_start:.2f} to {x_end:.2f}')
-        ax[i].legend(loc='upper right')
+    # Return the total volume
+    return total_volume
 
-        # Set limits based on yz bounds
-        ax[i].set_xlim(y_min, y_max)
-        ax[i].set_ylim(z_min, z_max)
-        ax[i].set_aspect('equal')
 
-    plt.tight_layout()
-    plt.show()
+def calculate_volume_with_projected_boundaries_concave(pcd1, pcd2, num_slices=3, concave_resolution=0.002):
+    """
+    Calculate the volume between two irregular surfaces by integrating cross-sectional areas along the y-axis.
+    """
+    points1 = np.asarray(pcd1.points)
+    points2 = np.asarray(pcd2.points)
     
+    # Define full x, y, and z bounds based on the two surfaces
+    x_min = min(points1[:, 0].min(), points2[:, 0].min())
+    x_max = max(points1[:, 0].max(), points2[:, 0].max())
+    y_min = min(points1[:, 1].min(), points2[:, 1].min())
+    y_max = max(points1[:, 1].max(), points2[:, 1].max())
+    z_min = min(points1[:, 2].min(), points2[:, 2].min())
+    z_max = max(points1[:, 2].max(), points2[:, 2].max())
+    
+    # Calculate the area of the xz-plane bounding box
+    bounding_area_xz = (x_max - x_min) * (z_max - z_min)
+    
+    # Define y-axis slices
+    y_slices = np.linspace(y_min, y_max, num_slices)
+    total_volume = 0
+
+    for i in range(len(y_slices) - 1):
+        y_start, y_end = y_slices[i], y_slices[i + 1]
+        slice_thickness = y_end - y_start
+        y_mid = (y_start + y_end) / 2
+
+        # Filter points within the current y-slice for each surface
+        slice_points1 = points1[(points1[:, 1] >= y_start) & (points1[:, 1] < y_end)]
+        slice_points2 = points2[(points2[:, 1] >= y_start) & (points2[:, 1] < y_end)]
+        
+        # Combine points from both surfaces for this slice
+        combined_slice_points = np.vstack((slice_points1, slice_points2))
+        
+        if len(combined_slice_points) >= 3:
+            # Project combined points onto the xz-plane at y_mid
+            xz_combined_points = np.column_stack((combined_slice_points[:, 0], np.full(combined_slice_points.shape[0], y_mid), combined_slice_points[:, 2]))
+            xz_points_display = o3d.geometry.PointCloud()
+            xz_points_display.points = o3d.utility.Vector3dVector(xz_combined_points)
+
+
+            # Compute the concave hull indices
+            idxes = concave_hull_indexes(xz_combined_points[:, [0, 2]], length_threshold=concave_resolution)
+            hull_points = xz_combined_points[idxes]
+
+            # Calculate the area of the concave hull using the Shoelace formula
+            x = hull_points[:, 0]
+            z = hull_points[:, 2]
+            cross_sectional_area = 0.5 * np.abs(np.dot(x, np.roll(z, 1)) - np.dot(z, np.roll(x, 1)))
+            
+            # Prepare visualization of Concave Hull in Open3D
+            hull_cloud = o3d.geometry.PointCloud()
+            hull_cloud.points = o3d.utility.Vector3dVector(hull_points)
+            
+            # Create lines to connect hull points in sequence and close the loop
+            hull_lines = [[j, (j + 1) % len(idxes)] for j in range(len(idxes))]
+            
+            hull_line_set = o3d.geometry.LineSet()
+            hull_line_set.points = hull_cloud.points
+            hull_line_set.lines = o3d.utility.Vector2iVector(hull_lines)
+            
+            # Display the concave hull with Open3D
+            o3d.visualization.draw_geometries([xz_points_display, hull_line_set], window_name=f"Slice {i+1} (y_mid = {y_mid:.2f})")
+            
+        else:
+            # Use the bounding area if there are insufficient points to form a polygon
+            cross_sectional_area = bounding_area_xz
+
+        # Estimate volume for this slice
+        slice_volume = cross_sectional_area * slice_thickness
+
+        # Add the slice volume to the total volume
+        total_volume += slice_volume
+
     # Return the total volume
     return total_volume
