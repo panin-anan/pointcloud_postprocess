@@ -67,9 +67,9 @@ o3d.visualization.draw_geometries([mesh_before_trimesh_alpha_cropped], window_na
 '''
 
 def create_mesh_from_point_cloud(pcd):
-    points = np.asarray(pcd.points)
-    jitter = np.random.normal(scale=1e-6, size=points.shape)
-    pcd.points = o3d.utility.Vector3dVector(points + jitter)
+    #points = np.asarray(pcd.points)
+    #jitter = np.random.normal(scale=1e-9, size=points.shape)
+    #pcd.points = o3d.utility.Vector3dVector(points + jitter)
     pcd.estimate_normals()
 
     pcd.orient_normals_consistent_tangent_plane(30)

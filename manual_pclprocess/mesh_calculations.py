@@ -103,120 +103,37 @@ def calculate_lost_volume_from_changedpcl(mesh_missing, fixed_thickness):
 
     return volume_lost
 
-def create_mesh_from_point_cloud(pcd):
-    points = np.asarray(pcd.points)
-    jitter = np.random.normal(scale=1e-6, size=points.shape)
-    pcd.points = o3d.utility.Vector3dVector(points + jitter) #add jitter if points coincide
+def create_mesh_from_point_cloud(pcd, alpha = 0.01):
+    #points = np.asarray(pcd.points)
+    #jitter = np.random.normal(scale=1e-6, size=points.shape)
+    #pcd.points = o3d.utility.Vector3dVector(points + jitter) #add jitter if points coincide
     print('estimating normals')
     pcd.estimate_normals()
-    pcd.orient_normals_consistent_tangent_plane(30)
+    pcd.orient_normals_towards_camera_location(pcd.get_center() + np.array([0.1, 0, 0]))
     print('meshing')
     
-    # Alpha Shape
-    # Iteratively adjust radii until a suitable mesh is created
-    iteration = 0
-    max_iterations = 10
-    step = 1.2
-    alpha = 0.002  # Adjust this parameter for alpha shape detail
-    direction = "multiply"  # Start by multiplying alpha
-    previous_surface_area = 0
-    '''
-    while iteration < max_iterations:
-        try:
-            # Try Alpha Shape for mesh creation with the current alpha value
-            #print(f'Attempting mesh creation with alpha: {alpha:.2g}')
-            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
-
-            # Compute the surface area of the mesh
-            current_surface_area = mesh.get_surface_area()
-            #print(f"Current surface area: {current_surface_area}")
-
-            # Check if the surface area is below the threshold or has decreased
-            if current_surface_area > previous_surface_area:
-                # Surface area has increased, update previous_surface_area
-                previous_surface_area = current_surface_area
-
-            else:
-                # If surface area decreased or did not improve, switch the direction
-                if direction == "multiply":
-                    direction = "divide"
-                else:
-                    direction = "multiply"
-
-            # Update alpha based on the current direction
-            if direction == "multiply":
-                alpha *= step
-            else:
-                alpha /= step
-
-
-        except Exception as e:
-            print(f"Alpha shape failed on iteration {iteration} with error: {e}")
-
-        # Increment iteration counter
-        iteration += 1
-    '''
-    
-    #uncomment this part if dont want iterative mesh
-    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
-    current_surface_area = mesh.get_surface_area()
-    print(f"Mesh created successfully with surface area {current_surface_area} and alpha {alpha:.2g}")
-    
-    '''
     #ball pivoting
-    current_factor = 1.0
-    #distances = pcd.compute_nearest_neighbor_distance()
-    #avg_dist = np.mean(distances)
-    initial_radii = [0.0001, 0.00025, 0.0005, 0.0075, 0.001, 0.002] 
-    radii = [r * current_factor for r in initial_radii]
-    r = o3d.utility.DoubleVector(radii)
-
-    while iteration < max_iterations:
-        # Dynamically scale radii based on the current factor
-        radii = [r * current_factor for r in initial_radii]  # Scale all radii by the current factor
-        print(f'Attempting mesh creation with radii: {[f"{r:.2g}" for r in radii]}')
-        
-        # Convert radii to Open3D-compatible DoubleVector format
-        r = o3d.utility.DoubleVector(radii)
-        
-        try:
-            # Try ball pivoting for mesh creation
-            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, r)
-            current_vertices = len(mesh.vertices)
-            print(f"Mesh created with {current_vertices} vertices.")
-            
-            # Check if the mesh has enough triangles/vertices to be considered "good"
-            if current_vertices > vertice_quality_threshold:
-                print(f"Mesh created successfully with {current_vertices} vertices.")
-                return mesh  # Return the successfully created mesh
-
-            # Check if the number of vertices decreased from the previous iteration
-            if iteration > 0 and current_vertices < previous_vertices:
-                # If the number of vertices decreases, switch direction (multiply -> divide or divide -> multiply)
-                if direction == "multiply":
-                    direction = "divide"
-                else:
-                    direction = "multiply"
-
-            # Update current factor based on the current direction
-            if direction == "multiply":
-                current_factor *= step
-            else:
-                current_factor /= step
-
-            # Store the number of vertices for the next iteration comparison
-            previous_vertices = current_vertices
-
-        except Exception as e:
-            print(f"Ball pivoting failed on iteration {iteration} with error: {e}")
-
-        # Increment iteration counter
-        iteration += 1  
-    '''
-
-    #mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, r)
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
 
     return mesh
+
+def shift_y_fordiagonal(pcd):
+    # Extract points
+    points = np.asarray(pcd.points)
+
+    # Define y range for applying the shift
+    min_y = 0.82
+    max_y = min_y + 0.006
+    max_shift = 0.002
+
+    # Calculate shift factor for points within the specified y range
+    mask = (points[:, 1] > min_y) & (points[:, 1] <= max_y)
+    points[mask, 0] += max_shift * (points[mask, 1] - min_y) / (max_y - min_y)
+
+    # Update point cloud with modified points
+    pcd.points = o3d.utility.Vector3dVector(points)
+
+    return pcd
 
 def fit_plane_to_pcd_pca(pcd):
         """Fit a plane to a cluster of points using PCA."""
@@ -375,8 +292,19 @@ def filter_changedpoints_onNormaxis(mesh_before, mesh_after, x_threshold=0.0003,
     mesh_missing = o3d.geometry.PointCloud()
     mesh_missing.points = o3d.utility.Vector3dVector(missing_points)
     
-    return mesh_missing
-
+    # Now find points in mesh_after that are outside the x_threshold distance from mesh_missing
+    kdtree_missing_x = cKDTree(missing_points[:, [0]])  # KDTree with only x-coordinates
+    distances, _ = kdtree_missing_x.query(points_after[:, [0]])
+    
+    # Mask to filter points in mesh_after that are outside the x_threshold distance in x-axis
+    change_mask = distances > x_threshold
+    changed_points = points_after[change_mask]
+    
+    # Create mesh_change with points in mesh_after that are outside the x-axis threshold distance from mesh_missing
+    mesh_change = o3d.geometry.PointCloud()
+    mesh_change.points = o3d.utility.Vector3dVector(changed_points)
+    
+    return mesh_missing, mesh_change
 
 def filter_missing_points_by_xy(mesh_before, mesh_after, x_threshold=0.0003, y_threshold=0.0001):
     # Convert points from Open3D mesh to numpy arrays
@@ -776,3 +704,85 @@ def transform_to_global_coordinates(local_pcl, pca_basis, centroid):
     global_pcl.points = o3d.utility.Vector3dVector(global_points)
     
     return global_pcl
+
+
+def calculate_volume_with_projected_boundaries(pcd1, pcd2, num_slices=10):
+    """
+    Calculate the volume between two irregular surfaces by integrating cross-sectional areas.
+    """
+    points1 = np.asarray(pcd1.points)
+    points2 = np.asarray(pcd2.points)
+    
+    # Define full x, y, and z bounds based on the two surfaces
+    x_min = min(points1[:, 0].min(), points2[:, 0].min())
+    x_max = max(points1[:, 0].max(), points2[:, 0].max())
+    y_min = min(points1[:, 1].min(), points2[:, 1].min())
+    y_max = max(points1[:, 1].max(), points2[:, 1].max())
+    z_min = min(points1[:, 2].min(), points2[:, 2].min())
+    z_max = max(points1[:, 2].max(), points2[:, 2].max())
+    
+    # Calculate the area of the yz-plane bounding box
+    bounding_area_yz = (y_max - y_min) * (z_max - z_min)
+    
+    # Define x-axis slices
+    x_slices = np.linspace(x_min, x_max, num_slices)
+    total_volume = 0
+
+    fig, ax = plt.subplots(1, num_slices, figsize=(20, 5))
+    
+    # Loop through each slice position
+    for i in range(len(x_slices) - 1):
+        x_start, x_end = x_slices[i], x_slices[i + 1]
+        slice_thickness = x_end - x_start
+
+        # Filter points within the current x-slice for each surface
+        slice_points1 = points1[(points1[:, 0] >= x_start) & (points1[:, 0] < x_end)]
+        slice_points2 = points2[(points2[:, 0] >= x_start) & (points2[:, 0] < x_end)]
+
+        if len(slice_points1) == 0 and len(slice_points2) == 0:
+            # If no points in this slice, assume full bounding area is occupied
+            slice_volume = bounding_area_yz * slice_thickness
+        else:
+            # Project points onto the yz-plane
+            yz_points1 = slice_points1[:, 1:]
+            yz_points2 = slice_points2[:, 1:]
+            
+            # Plot slice points and Convex Hulls
+            ax[i].scatter(yz_points1[:, 0], yz_points1[:, 1], color='red', s=10, label='Surface 1')
+            ax[i].scatter(yz_points2[:, 0], yz_points2[:, 1], color='green', s=10, label='Surface 2')
+            
+            # Calculate the area of each cross-section using Convex Hulls if points are available
+            if len(yz_points1) >= 3 and len(yz_points2) >= 3:
+                hull1 = ConvexHull(yz_points1)
+                hull2 = ConvexHull(yz_points2)
+                cross_sectional_area = np.abs(hull1.volume - hull2.volume)
+                
+                # Plot Convex Hulls
+                for simplex in hull1.simplices:
+                    ax[i].plot(yz_points1[simplex, 0], yz_points1[simplex, 1], 'r-')
+                for simplex in hull2.simplices:
+                    ax[i].plot(yz_points2[simplex, 0], yz_points2[simplex, 1], 'g-')
+            else:
+                # Use the bounding area if there are insufficient points to form a polygon
+                cross_sectional_area = bounding_area_yz
+
+            # Estimate volume for this slice
+            slice_volume = cross_sectional_area * slice_thickness
+
+        # Add the slice volume to the total volume
+        total_volume += slice_volume
+
+        # Add title and legend
+        ax[i].set_title(f'Slice {i+1}\n x = {x_start:.2f} to {x_end:.2f}')
+        ax[i].legend(loc='upper right')
+
+        # Set limits based on yz bounds
+        ax[i].set_xlim(y_min, y_max)
+        ax[i].set_ylim(z_min, z_max)
+        ax[i].set_aspect('equal')
+
+    plt.tight_layout()
+    plt.show()
+    
+    # Return the total volume
+    return total_volume
