@@ -26,7 +26,7 @@ from mesh_calculations import (
     sort_plate_cluster_centroid,
     create_bbox_from_pcl_axis_aligned,
     filter_points_by_plane_nearbycloud,
-    filter_changedpoints_onNormaxis,
+    filter_changedpoints_onNormZaxis,
     shift_y_fordiagonal,
     calculate_volume_with_projected_boundaries_convex,
     calculate_volume_with_projected_boundaries_concave
@@ -247,15 +247,20 @@ class MeshApp:
             raise ValueError(f"Plane normals differ too much: {angle} degrees")
 
 
-        #changed point partition
+        #generate shift in points TODO remove this for actual test data
         self.mesh2 = shift_y_fordiagonal(self.mesh2)
         self.mesh1 = self.mesh1.paint_uniform_color([1, 0, 0])  # Red color
         self.mesh2 = self.mesh2.paint_uniform_color([0, 1, 0])  # Green color
-        o3d.visualization.draw_geometries([self.mesh1, self.mesh2])
+        o3d.visualization.draw_geometries([self.mesh1, self.mesh2, axes_mesh1])
 
+        #transform points to local xy plane
+        mesh1_local = transform_to_local_pca_coordinates(self.mesh1, mesh1_pca_basis, mesh1_plane_centroid )
+        mesh2_local = transform_to_local_pca_coordinates(self.mesh2, mesh1_pca_basis, mesh1_plane_centroid )
+        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
+        o3d.visualization.draw_geometries([mesh1_local, mesh2_local, axes])
 
         axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.01, origin=[0,0,0])
-        self.changed_mesh1, self.changed_mesh2 = filter_changedpoints_onNormaxis(self.mesh1, self.mesh2, x_threshold=0.0002, y_threshold=0.1, x_threshold_after=0.00015, neighbor_threshold=5)
+        self.changed_mesh1, self.changed_mesh2 = filter_changedpoints_onNormZaxis(mesh1_local, mesh2_local, z_threshold=0.0002, x_threshold=0.01, z_threshold_after=0.000002, neighbor_threshold=5)
         # after sorting
         self.changed_mesh1 = sort_largest_cluster(self.changed_mesh1, eps=0.0003, min_points=20, remove_outliers=True)
         self.changed_mesh2 = sort_largest_cluster(self.changed_mesh2, eps=0.0002, min_points=20, remove_outliers=True)
@@ -283,7 +288,7 @@ class MeshApp:
             lost_volume = 0.0
         else:
             #area from bounding box
-            lost_volume = calculate_volume_with_projected_boundaries_concave(self.changed_mesh1, self.changed_mesh2, num_slices=10, concave_resolution=0.002)
+            lost_volume = calculate_volume_with_projected_boundaries_concave(self.changed_mesh1, self.changed_mesh2, num_slices=3, concave_resolution=0.002)
             print(f"Lost Volume: {lost_volume} m^3")        
 
 

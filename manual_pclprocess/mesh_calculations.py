@@ -260,6 +260,52 @@ def create_mesh_from_clusters(pcd, eps=0.005, min_points=30, remove_outliers=Tru
 
     return combined_mesh
 
+def filter_changedpoints_onNormZaxis(mesh_before, mesh_after, z_threshold=0.0003, x_threshold=0.0001, z_threshold_after=0.00001, neighbor_threshold=5):
+    # Convert points from Open3D mesh to numpy arrays
+    points_before = np.asarray(mesh_before.points)
+    points_after = np.asarray(mesh_after.points)
+    
+    # Create a KDTree for the points in mesh_after
+    kdtree_after = cKDTree(points_after)
+    
+    # Query KDTree to find distances and indices of nearest neighbors in mesh_after for points in mesh_before
+    _, indices = kdtree_after.query(points_before)
+    
+    # Get the x and z coordinates from both meshes
+    z_before = points_before[:, 2]
+    x_before = points_before[:, 0]
+    z_after = points_after[indices, 2]  # Nearest neighbors' z-coordinates
+    x_after = points_after[indices, 0]  # Nearest neighbors' x-coordinates
+    
+    # Calculate the absolute differences in the x and z coordinates
+    z_diff = np.abs(z_before - z_after)
+    x_diff = np.abs(x_before - x_after)
+    
+    # Create a mask to find points in mesh_before where either the x or z axis difference
+    # with the corresponding point in mesh_after exceeds the respective thresholds
+    zx_diff_mask = (z_diff >= z_threshold) | (x_diff >= x_threshold)
+    
+    # Select the points from mesh_before where the x or z axis difference is larger than the threshold
+    missing_points = points_before[zx_diff_mask]
+    
+    # Create a new point cloud with the points that have significant x or z axis differences
+    mesh_missing = o3d.geometry.PointCloud()
+    mesh_missing.points = o3d.utility.Vector3dVector(missing_points)
+    
+    # Now find points in mesh_after that are outside the z_threshold distance from mesh_missing
+    kdtree_missing_z = cKDTree(missing_points[:, [2]])  # KDTree with only z-coordinates
+    distances, _ = kdtree_missing_z.query(points_after[:, [2]])
+    
+    # Mask to filter points in mesh_after that are outside the z_threshold distance in z-axis
+    change_mask = distances > z_threshold_after
+    changed_points = points_after[change_mask]
+    
+    # Create mesh_change with points in mesh_after that are outside the z-axis threshold distance from mesh_missing
+    mesh_change = o3d.geometry.PointCloud()
+    mesh_change.points = o3d.utility.Vector3dVector(changed_points)
+    
+    return mesh_missing, mesh_change
+
 
 def filter_changedpoints_onNormaxis(mesh_before, mesh_after, x_threshold=0.0003, y_threshold=0.0001, x_threshold_after=0.00001, neighbor_threshold=5):
     # Convert points from Open3D mesh to numpy arrays
