@@ -536,7 +536,7 @@ def compute_convex_hull_area_xy(point_cloud):
 
     return area, hull_pcd, line_set
 
-def sort_plate_cluster(pcd, eps=0.0005, min_points=100, remove_outliers=True):
+def sort_plate_cluster(pcd, eps=0.001, min_points=100, remove_outliers=True):
     # Step 1: Segment point cloud into clusters using DBSCAN
     labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))
     
